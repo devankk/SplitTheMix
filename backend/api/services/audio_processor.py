@@ -262,7 +262,7 @@ class AudioProcessor:
         for proxy in proxy_candidates:
             cmd = [
                 "yt-dlp",
-                "-f", "ba/b/best",
+                "-f", "ba[abr<=64]/ba[abr<=80]/ba/b/best",
                 "--no-playlist",
                 "--no-warnings",
                 "--force-ipv4",
