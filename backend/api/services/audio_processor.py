@@ -250,6 +250,7 @@ class AudioProcessor:
         ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
         output_path = os.path.join(tmp_dir, "audio.%(ext)s")
         cookie_file = get_cookies_file_path()
+        proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
 
         cmd = [
             "yt-dlp",
@@ -267,6 +268,8 @@ class AudioProcessor:
         ]
         if ffmpeg_dir:
             cmd = cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + cmd[1:]
+        if proxy:
+            cmd.extend(["--proxy", proxy])
         if cookie_file:
             cmd.extend(["--cookies", cookie_file])
         else:
@@ -296,6 +299,8 @@ class AudioProcessor:
             ]
             if ffmpeg_dir:
                 fallback_cmd = fallback_cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + fallback_cmd[1:]
+            if proxy:
+                fallback_cmd.extend(["--proxy", proxy])
             if cookie_file:
                 fallback_cmd.extend(["--cookies", cookie_file])
             proc2 = await asyncio.create_subprocess_exec(

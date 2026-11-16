@@ -42,6 +42,7 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
         url = f"https://www.youtube.com/watch?v={identifier}"
     ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
     cookie_file = get_cookies_file_path()
+    proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
     cmd = [
         "yt-dlp",
         "--dump-json",
@@ -53,6 +54,8 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
     ]
     if ffmpeg_dir:
         cmd += ["--ffmpeg-location", ffmpeg_dir]
+    if proxy:
+        cmd += ["--proxy", proxy]
     if cookie_file:
         cmd += ["--cookies", cookie_file]
     else:
@@ -72,6 +75,8 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
                 "--remote-components", "ejs:github",
                 url
             ]
+            if proxy:
+                fallback_cmd += ["--proxy", proxy]
             if cookie_file:
                 fallback_cmd += ["--cookies", cookie_file]
             result = subprocess.run(fallback_cmd, capture_output=True, text=True, timeout=30)
