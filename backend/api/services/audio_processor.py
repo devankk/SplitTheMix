@@ -250,45 +250,14 @@ class AudioProcessor:
         ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
         output_path = os.path.join(tmp_dir, "audio.%(ext)s")
         cookie_file = get_cookies_file_path()
-        proxy = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
+        raw_proxy = os.environ.get("YTDLP_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or ""
+        proxy_candidates = [p.strip() for p in raw_proxy.split(",") if p.strip()] or [None]
 
-        cmd = [
-            "yt-dlp",
-            "-f", "ba/b/best",
-            "-x",
-            "--audio-format", "mp3",
-            "--audio-quality", "5",
-            "--no-playlist",
-            "--no-warnings",
-            "--force-ipv4",
-            "--js-runtimes", "node",
-            "--remote-components", "ejs:github",
-            "-o", output_path,
-            url,
-        ]
-        if ffmpeg_dir:
-            cmd = cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + cmd[1:]
-        if proxy:
-            cmd.extend(["--proxy", proxy])
-        if cookie_file:
-            cmd.extend(["--cookies", cookie_file])
-        else:
-            cmd.extend(["--extractor-args", "youtube:player_client=android,web"])
-
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            # Fallback attempt with explicit format 18/best
-            fallback_cmd = [
+        last_error = "Unknown error"
+        for proxy in proxy_candidates:
+            cmd = [
                 "yt-dlp",
-                "-f", "bestaudio/best/18",
-                "-x",
-                "--audio-format", "mp3",
-                "--audio-quality", "5",
+                "-f", "ba/b/best",
                 "--no-playlist",
                 "--no-warnings",
                 "--force-ipv4",
@@ -298,25 +267,29 @@ class AudioProcessor:
                 url,
             ]
             if ffmpeg_dir:
-                fallback_cmd = fallback_cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + fallback_cmd[1:]
+                cmd = cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + cmd[1:]
             if proxy:
-                fallback_cmd.extend(["--proxy", proxy])
+                cmd.extend(["--proxy", proxy])
             if cookie_file:
-                fallback_cmd.extend(["--cookies", cookie_file])
-            proc2 = await asyncio.create_subprocess_exec(
-                *fallback_cmd,
+                cmd.extend(["--cookies", cookie_file])
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout2, stderr2 = await proc2.communicate()
-            if proc2.returncode != 0:
-                err_msg = stderr2.decode()[:500] if stderr2 else (stderr.decode()[:500] if stderr else "Unknown error")
-                raise RuntimeError(f"yt-dlp failed: {err_msg}")
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                for f in os.listdir(tmp_dir):
+                    if f.startswith("audio.") and not f.endswith(".part"):
+                        return os.path.join(tmp_dir, f)
 
-        for f in os.listdir(tmp_dir):
-            if f.startswith("audio.") and f.endswith(".mp3"):
-                return os.path.join(tmp_dir, f)
-        raise RuntimeError("Downloaded audio file not found")
+            # Record error and try next proxy candidate if available
+            err_msg = stderr.decode()[:500] if stderr else "Download exited with non-zero status"
+            last_error = err_msg
+            logger.warning(f"Download attempt failed with proxy '{proxy}': {err_msg}")
+
+        raise RuntimeError(f"yt-dlp failed: {last_error}")
 
     def _split_into_chunks(
         self, audio: AudioSegment, tmp_dir: str
