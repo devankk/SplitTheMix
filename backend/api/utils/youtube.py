@@ -30,8 +30,30 @@ def extract_video_id(url: str) -> str | None:
     return None
 
 
+def _fetch_oembed_metadata(video_id: str) -> dict:
+    import urllib.request
+    try:
+        oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+        req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode())
+            return {
+                "video_title": data.get("title"),
+                "channel_name": data.get("author_name"),
+                "thumbnail_url": data.get("thumbnail_url"),
+                "video_duration": None,
+            }
+    except Exception:
+        return {}
+
+
 def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
-    """Use yt-dlp subprocess to fetch metadata without downloading."""
+    """Fetch video metadata with fast oEmbed fallback and yt-dlp duration extraction."""
+    meta = {}
+    vid = extract_video_id(full_url or identifier)
+    if vid and not vid.startswith("sc_") and not vid.startswith("mc_"):
+        meta = _fetch_oembed_metadata(vid)
+
     if full_url and full_url.startswith("http"):
         url = full_url
     elif identifier.startswith("http"):
@@ -40,6 +62,7 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
         url = full_url or identifier
     else:
         url = f"https://www.youtube.com/watch?v={identifier}"
+
     ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
     cookie_file = get_cookies_file_path()
     raw_proxy = os.environ.get("YTDLP_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or ""
@@ -63,7 +86,7 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
             cmd += ["--cookies", cookie_file]
         cmd.append(url)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
                 data = json.loads(result.stdout)
                 thumbnails = data.get("thumbnails", [])
@@ -74,13 +97,16 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
                             thumbnail_url = t["url"]
                             break
                 return {
-                    "video_title": data.get("title"),
-                    "channel_name": data.get("uploader") or data.get("channel"),
-                    "thumbnail_url": thumbnail_url or data.get("thumbnail"),
-                    "video_duration": data.get("duration"),
+                    "video_title": data.get("title") or meta.get("video_title"),
+                    "channel_name": data.get("uploader") or data.get("channel") or meta.get("channel_name"),
+                    "thumbnail_url": thumbnail_url or data.get("thumbnail") or meta.get("thumbnail_url"),
+                    "video_duration": data.get("duration") or meta.get("video_duration"),
                 }
         except Exception:
             continue
+
+    if meta.get("video_title"):
+        return meta
 
     return {
         "video_title": None,

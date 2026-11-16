@@ -65,13 +65,13 @@ async def enrich_track_metadata(title: str, artist: str, existing_meta: dict) ->
 AudioSegment.converter = os.environ.get("FFMPEG_PATH", "ffmpeg")
 AudioSegment.ffprobe = os.environ.get("FFPROBE_PATH", "ffprobe")
 
-# High-speed & high-precision constants
-CHUNK_DURATION_SEC = 12       # 12-second snippet
-CHUNK_STRIDE_SEC = 50         # Sample every 50 seconds
-MAX_CONCURRENT_REQUESTS = 6   # Query 6 chunks in parallel
+# High-precision DJ mix recognition constants (Optimized for quick cuts and 80+ song festival sets)
+CHUNK_DURATION_SEC = 15       # 15-second snippet (captures melody & vocals past transition drums)
+CHUNK_STRIDE_SEC = 18         # Sample every 18 seconds (catches quick cuts and 45-sec drops)
+MAX_CONCURRENT_REQUESTS = 8   # Query 8 chunks in parallel for ultra-fast throughput
 MERGE_WINDOW_SEC = 180        # Merge detections of the same song within 3 minutes (180s)
-MIN_SONG_GAP_SEC = 150        # Only show Unknown Track for gaps > 2.5 minutes (150s)
-MIN_CONFIDENCE = 40           # Discard low-confidence phantom detections
+MIN_SONG_GAP_SEC = 90         # Only show Unknown Track if true dead gap > 90 seconds
+MIN_CONFIDENCE = 30           # Catch pitched-up edits and fast club remixes
 
 
 def _normalize_title(text: str) -> str:
