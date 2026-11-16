@@ -52,11 +52,19 @@ def get_cookies_file_path() -> str | None:
 
     content = raw.strip()
     try:
-        decoded = base64.b64decode(content).decode("utf-8")
-        if "# Netscape HTTP Cookie File" in decoded or "youtube" in decoded:
-            content = decoded
+        if not content.startswith("#"):
+            decoded = base64.b64decode(content).decode("utf-8")
+            if "youtube" in decoded:
+                content = decoded
     except Exception:
         pass
+
+    # Unescape literal backslash-n from web dashboard inputs
+    if "\\n" in content:
+        content = content.replace("\\n", "\n").replace("\\r", "").replace("\\t", "\t")
+
+    if not content.startswith("# Netscape HTTP Cookie File"):
+        content = "# Netscape HTTP Cookie File\n" + content
 
     cookie_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
     with open(cookie_path, "w", encoding="utf-8") as f:
