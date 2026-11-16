@@ -37,3 +37,28 @@ def calculate_confidence(raw_score) -> int:
         return min(100, max(0, int(float(raw_score))))
     except (TypeError, ValueError):
         return 0
+
+
+def get_cookies_file_path() -> str | None:
+    import base64
+    import os
+    import tempfile
+
+    raw = os.environ.get("YOUTUBE_COOKIES")
+    if not raw:
+        return None
+    if os.path.isfile(raw):
+        return raw
+
+    content = raw.strip()
+    try:
+        decoded = base64.b64decode(content).decode("utf-8")
+        if "# Netscape HTTP Cookie File" in decoded or "youtube" in decoded:
+            content = decoded
+    except Exception:
+        pass
+
+    cookie_path = os.path.join(tempfile.gettempdir(), "yt_cookies.txt")
+    with open(cookie_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return cookie_path

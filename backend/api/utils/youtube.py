@@ -2,6 +2,7 @@ import re
 import subprocess
 import json
 import os
+from api.utils.helpers import get_cookies_file_path
 
 
 def extract_video_id(url: str) -> str | None:
@@ -50,8 +51,9 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
     ]
     if ffmpeg_dir:
         cmd += ["--ffmpeg-location", ffmpeg_dir]
-    if os.environ.get("YOUTUBE_COOKIES"):
-        cmd += ["--cookies", os.environ["YOUTUBE_COOKIES"]]
+    cookie_file = get_cookies_file_path()
+    if cookie_file:
+        cmd += ["--cookies", cookie_file]
     cmd.append(url)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -66,6 +68,8 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
                 "--extractor-args", "youtube:player_client=ios,mweb",
                 url
             ]
+            if cookie_file:
+                fallback_cmd += ["--cookies", cookie_file]
             result = subprocess.run(fallback_cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 return {
