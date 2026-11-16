@@ -11,4 +11,4 @@ python-multipart>=0.0.20
 numpy>=1.26.0
 shazamio>=0.8.0
 static-ffmpeg>=2.5
-audioop-lts
+audioop-lts; python_version >= '3.13'
