@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -138,10 +139,14 @@ class AudioProcessor:
                 progress=10,
             )
 
-            # 4. Load audio and split into optimized snippets
-            audio = AudioSegment.from_file(audio_path)
-            total_ms = len(audio)
-            chunks = self._split_into_chunks(audio, tmp_dir)
+            # 4. Zero-RAM duration resolution and streaming snippet slicing with ffmpeg
+            total_sec = self._get_audio_duration(audio_path)
+            if total_sec <= 0:
+                from api.models.database import AnalysisJob
+                job_rec = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+                total_sec = float(job_rec.video_duration) if job_rec and job_rec.video_duration else 3600.0
+
+            chunks = self._split_into_chunks(audio_path, total_sec, tmp_dir)
             total_chunks = len(chunks)
 
             # 5. Parallel Batch Recognition using Semaphore
@@ -173,7 +178,7 @@ class AudioProcessor:
             tracks_data = self._deduplicate(raw_results)
 
             # 7. Gap analysis — only insert Unknown Track if true dead gap > 2.5 minutes
-            tracks_data = self._fill_gaps(tracks_data, total_ms / 1000)
+            tracks_data = self._fill_gaps(tracks_data, total_sec)
 
             # 8. Enrich identified tracks with album art, BPM, Key, release year, label in parallel
             enriched_tasks = []
@@ -187,7 +192,7 @@ class AudioProcessor:
             # 9. Build final tracks with end_time, duration, platform_links
             db_tracks = []
             for idx, t in enumerate(tracks_data):
-                end_time = tracks_data[idx + 1]["start_time"] if idx + 1 < len(tracks_data) else (total_ms / 1000)
+                end_time = tracks_data[idx + 1]["start_time"] if idx + 1 < len(tracks_data) else total_sec
                 dur = (end_time - t["start_time"]) if end_time is not None else None
                 if t["is_identified"]:
                     pl = generate_platform_links(t["title"], t["artist"])
@@ -291,23 +296,47 @@ class AudioProcessor:
 
         raise RuntimeError(f"yt-dlp failed: {last_error}")
 
-    def _split_into_chunks(
-        self, audio: AudioSegment, tmp_dir: str
-    ) -> list[tuple[str, float]]:
-        chunks = []
-        step = CHUNK_STRIDE_SEC * 1000
-        chunk_ms = CHUNK_DURATION_SEC * 1000
-        pos = 0
-        idx = 0
-        total_ms = len(audio)
+    def _get_audio_duration(self, audio_path: str) -> float:
+        """Get audio duration in seconds using ffprobe without loading file into memory."""
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            audio_path
+        ]
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if res.returncode == 0 and res.stdout.strip():
+                return float(res.stdout.strip())
+        except Exception as e:
+            logger.warning(f"ffprobe duration check failed: {e}")
+        return 0.0
 
-        while pos < total_ms:
-            end = min(pos + chunk_ms, total_ms)
-            chunk = audio[pos:end]
-            chunk = chunk.set_channels(1)
+    def _split_into_chunks(
+        self, audio_path: str, total_sec: float, tmp_dir: str
+    ) -> list[tuple[str, float]]:
+        """Slice 15-second mono WAV snippets directly using ffmpeg. Memory used: ~15MB (resets immediately)."""
+        chunks = []
+        step = CHUNK_STRIDE_SEC
+        dur = CHUNK_DURATION_SEC
+        pos = 0.0
+        idx = 0
+
+        while pos < total_sec:
             chunk_path = os.path.join(tmp_dir, f"chunk_{idx:04d}.wav")
-            chunk.export(chunk_path, format="wav")
-            chunks.append((chunk_path, pos / 1000.0))
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", str(pos),
+                "-t", str(dur),
+                "-i", audio_path,
+                "-ac", "1",
+                "-ar", "44100",
+                "-vn",
+                chunk_path
+            ]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if os.path.exists(chunk_path) and os.path.getsize(chunk_path) > 1000:
+                chunks.append((chunk_path, pos))
             pos += step
             idx += 1
 
