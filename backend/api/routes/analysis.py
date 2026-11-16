@@ -72,6 +72,22 @@ async def analyze_mix(payload: AnalysisJobCreate, db: Session = Depends(get_db))
     vid = extract_video_id(url)
     if not vid:
         raise HTTPException(status_code=422, detail="Invalid URL. Please provide a valid YouTube, SoundCloud, or Mixcloud link.")
+
+    # 1. Instant Cache: If this exact mix was already analyzed, return it immediately in 0.01 seconds!
+    existing_completed = db.query(AnalysisJob).filter(
+        AnalysisJob.video_id == vid,
+        AnalysisJob.status == "completed"
+    ).order_by(AnalysisJob.completed_at.desc()).first()
+    if existing_completed and existing_completed.tracks:
+        return _format_job_response(existing_completed)
+
+    # 2. De-duplicate In-Flight: If another user already requested this exact mix and it's currently processing, share the live job!
+    in_flight = db.query(AnalysisJob).filter(
+        AnalysisJob.video_id == vid,
+        AnalysisJob.status.in_(["queued", "downloading", "processing"])
+    ).first()
+    if in_flight:
+        return _format_job_response(in_flight)
     
     meta = fetch_video_metadata(vid, full_url=url)
     job_id = str(uuid.uuid4())
