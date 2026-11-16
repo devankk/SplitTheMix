@@ -48,6 +48,8 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
         "--no-download",
         "--no-warnings",
         "--force-ipv4",
+        "--js-runtimes", "node",
+        "--remote-components", "ejs:github",
     ]
     if ffmpeg_dir:
         cmd += ["--ffmpeg-location", ffmpeg_dir]
@@ -66,7 +68,8 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
                 "--no-download",
                 "--no-warnings",
                 "--force-ipv4",
-                "--extractor-args", "youtube:player_client=ios,mweb",
+                "--js-runtimes", "node",
+                "--remote-components", "ejs:github",
                 url
             ]
             if cookie_file:

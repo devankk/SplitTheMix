@@ -260,6 +260,8 @@ class AudioProcessor:
             "--no-playlist",
             "--no-warnings",
             "--force-ipv4",
+            "--js-runtimes", "node",
+            "--remote-components", "ejs:github",
             "-o", output_path,
             url,
         ]
@@ -287,6 +289,8 @@ class AudioProcessor:
                 "--no-playlist",
                 "--no-warnings",
                 "--force-ipv4",
+                "--js-runtimes", "node",
+                "--remote-components", "ejs:github",
                 "-o", output_path,
                 url,
             ]
