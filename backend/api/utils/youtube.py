@@ -40,19 +40,40 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
     else:
         url = f"https://www.youtube.com/watch?v={identifier}"
     ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
-    cmd = ["yt-dlp", "--dump-json", "--no-download", "--no-warnings"]
+    cmd = [
+        "yt-dlp",
+        "--dump-json",
+        "--no-download",
+        "--no-warnings",
+        "--force-ipv4",
+        "--extractor-args", "youtube:player_client=android,web",
+    ]
     if ffmpeg_dir:
         cmd += ["--ffmpeg-location", ffmpeg_dir]
+    if os.environ.get("YOUTUBE_COOKIES"):
+        cmd += ["--cookies", os.environ["YOUTUBE_COOKIES"]]
     cmd.append(url)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
-            return {
-                "video_title": None,
-                "channel_name": None,
-                "thumbnail_url": None,
-                "video_duration": None,
-            }
+            # Fallback with iOS player client
+            fallback_cmd = [
+                "yt-dlp",
+                "--dump-json",
+                "--no-download",
+                "--no-warnings",
+                "--force-ipv4",
+                "--extractor-args", "youtube:player_client=ios,mweb",
+                url
+            ]
+            result = subprocess.run(fallback_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                return {
+                    "video_title": None,
+                    "channel_name": None,
+                    "thumbnail_url": None,
+                    "video_duration": None,
+                }
         data = json.loads(result.stdout)
         # Pick best thumbnail
         thumbnails = data.get("thumbnails", [])

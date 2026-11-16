@@ -255,11 +255,19 @@ class AudioProcessor:
             "--audio-quality", "5",
             "--no-playlist",
             "--no-warnings",
+            "--force-ipv4",
+            "--extractor-args", "youtube:player_client=android,web",
             "-o", output_path,
             url,
         ]
         if ffmpeg_dir:
             cmd = cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + cmd[1:]
+
+        if os.environ.get("YOUTUBE_COOKIES"):
+            cookie_file = os.path.join(tmp_dir, "cookies.txt")
+            with open(cookie_file, "w") as cf:
+                cf.write(os.environ["YOUTUBE_COOKIES"])
+            cmd.extend(["--cookies", cookie_file])
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -268,8 +276,30 @@ class AudioProcessor:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            err_msg = stderr.decode()[:500] if stderr else "Unknown error"
-            raise RuntimeError(f"yt-dlp failed: {err_msg}")
+            # Fallback with iOS player client for cloud datacenter IPs
+            fallback_cmd = [
+                "yt-dlp",
+                "-x",
+                "--audio-format", "mp3",
+                "--audio-quality", "5",
+                "--no-playlist",
+                "--no-warnings",
+                "--force-ipv4",
+                "--extractor-args", "youtube:player_client=ios,mweb",
+                "-o", output_path,
+                url,
+            ]
+            if ffmpeg_dir:
+                fallback_cmd = fallback_cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + fallback_cmd[1:]
+            proc2 = await asyncio.create_subprocess_exec(
+                *fallback_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout2, stderr2 = await proc2.communicate()
+            if proc2.returncode != 0:
+                err_msg = stderr.decode()[:500] if stderr else "Unknown error"
+                raise RuntimeError(f"yt-dlp failed: {err_msg}")
 
         for f in os.listdir(tmp_dir):
             if f.startswith("audio.") and f.endswith(".mp3"):
