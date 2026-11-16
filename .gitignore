@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+*.pyc
+djmix.db
+
+# Environment & Secrets (NEVER COMMIT)
+.env
+*.env
+*.env.*
+*.env.local
+backend/.env
+
+# Scratch & test scripts
+test_*.py
+shazam_bench.py
+meta_test.json
+comments.json
+yt_page.html
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Temp audio files
+*.mp3
+*.wav
+*.m4a
+tmp_*/
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp

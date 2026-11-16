@@ -1,0 +1,39 @@
+from urllib.parse import quote_plus
+
+
+def generate_platform_links(title: str, artist: str) -> dict:
+    query = quote_plus(f"{artist} {title}".strip())
+    return {
+        "spotify_search": f"https://open.spotify.com/search/{query}",
+        "youtube_music_search": f"https://music.youtube.com/search?q={query}",
+        "apple_music_search": f"https://music.apple.com/search?term={query}",
+        "soundcloud_search": f"https://soundcloud.com/search?q={query}",
+        "mixcloud_search": f"https://www.mixcloud.com/search/?q={query}",
+    }
+
+
+def format_timestamp(seconds: float) -> str:
+    seconds = int(seconds)
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    s = seconds % 60
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def parse_timestamp(ts: str) -> float:
+    """Parse 'MM:SS' or 'H:MM:SS' to seconds."""
+    parts = ts.strip().split(":")
+    if len(parts) == 2:
+        return int(parts[0]) * 60 + int(parts[1])
+    elif len(parts) == 3:
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+    raise ValueError(f"Invalid timestamp format: {ts}")
+
+
+def calculate_confidence(raw_score) -> int:
+    try:
+        return min(100, max(0, int(float(raw_score))))
+    except (TypeError, ValueError):
+        return 0
