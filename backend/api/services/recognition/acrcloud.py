@@ -83,12 +83,25 @@ class ACRCloudRecognizer(BaseRecognizer):
                         artist = artists[0].get("name", "") if artists else ""
                         score = item.get("score", 0)
                         confidence = min(100, max(0, int(float(score))))
+                        
+                        # Extract rich metadata from ACRCloud
+                        release_date = item.get("release_date", "")
+                        release_year = release_date[:4] if release_date else None
+                        label = item.get("label") or item.get("album", {}).get("name")
+                        bpm_raw = item.get("bpm") or item.get("tempo")
+                        bpm = int(float(bpm_raw)) if bpm_raw else None
+                        key = item.get("key")
+
                         results.append(
                             RecognitionResult(
                                 title=title,
                                 artist=artist,
                                 confidence=confidence,
                                 absolute_timestamp=offset,
+                                bpm=bpm,
+                                musical_key=key,
+                                release_year=release_year,
+                                label=label,
                             )
                         )
                     return results

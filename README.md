@@ -1,8 +1,8 @@
-# MixTrace — AI-Powered DJ Mix Tracklist & Timestamp Identifier
+# SplitTheMix — DJ Mix Tracklist & Timestamp Identifier
 
-MixTrace is a full-stack platform that identifies every individual song played inside a long continuous DJ mix, YouTube live set, mashup, or music compilation.
+SplitTheMix is a full-stack platform that identifies every individual song played inside a long continuous DJ mix, YouTube live set, SoundCloud set, Mixcloud set, mashup, or music compilation.
 
-Instead of scraping metadata or video descriptions, MixTrace uses a chunk-based audio recognition pipeline that processes sets of any duration (including 1–3 hour sets) with boundary overlapping, acoustic fingerprinting, and deduplication.
+Instead of scraping metadata or video descriptions, SplitTheMix uses a chunk-based audio recognition pipeline that processes sets of any duration (including 1–3 hour sets) with boundary overlapping, acoustic fingerprinting, and deduplication.
 
 ---
 

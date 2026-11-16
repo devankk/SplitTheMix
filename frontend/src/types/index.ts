@@ -15,6 +15,11 @@ export interface Track {
   end_time: number | null
   duration: number | null
   confidence: number
+  album_art?: string | null
+  bpm?: number | null
+  musical_key?: string | null
+  release_year?: string | null
+  label?: string | null
   platform_links: PlatformLinks | null
   is_identified: boolean
   edited_by_user: boolean
@@ -44,6 +49,11 @@ export interface TrackUpdate {
   title?: string
   artist?: string
   start_time?: number
+  bpm?: number | null
+  musical_key?: string | null
+  release_year?: string | null
+  label?: string | null
+  album_art?: string | null
 }
 
 export interface TrackCreate {
@@ -51,4 +61,9 @@ export interface TrackCreate {
   title: string
   artist: string
   start_time: number
+  bpm?: number | null
+  musical_key?: string | null
+  release_year?: string | null
+  label?: string | null
+  album_art?: string | null
 }

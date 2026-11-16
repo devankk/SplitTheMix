@@ -19,7 +19,7 @@ export const TimestampButton: React.FC<TimestampButtonProps> = ({ seconds, video
       onSeek(seconds)
     } else if (videoId) {
       const url = `https://www.youtube.com/watch?v=${videoId}&t=${Math.floor(seconds)}s`
-      window.open(url, 'MixTrace_YouTube_Player')
+      window.open(url, 'SplitTheMix_YouTube_Player')
     } else {
       handleCopy(e)
     }
@@ -36,7 +36,7 @@ export const TimestampButton: React.FC<TimestampButtonProps> = ({ seconds, video
     e.stopPropagation()
     if (videoId) {
       const url = `https://www.youtube.com/watch?v=${videoId}&t=${Math.floor(seconds)}s`
-      window.open(url, 'MixTrace_YouTube_Player')
+      window.open(url, 'SplitTheMix_YouTube_Player')
     }
   }
 

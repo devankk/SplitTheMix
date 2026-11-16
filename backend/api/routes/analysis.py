@@ -36,6 +36,11 @@ def _format_track_response(t: Track) -> TrackResponse:
         end_time=t.end_time,
         duration=t.duration,
         confidence=t.confidence,
+        album_art=getattr(t, "album_art", None),
+        bpm=getattr(t, "bpm", None),
+        musical_key=getattr(t, "musical_key", None),
+        release_year=getattr(t, "release_year", None),
+        label=getattr(t, "label", None),
         platform_links=pl,
         is_identified=t.is_identified,
         edited_by_user=t.edited_by_user
@@ -111,6 +116,16 @@ def update_track(track_id: str, payload: TrackUpdate, db: Session = Depends(get_
         track.artist = payload.artist
     if payload.start_time is not None:
         track.start_time = payload.start_time
+    if payload.bpm is not None:
+        track.bpm = payload.bpm
+    if payload.musical_key is not None:
+        track.musical_key = payload.musical_key
+    if payload.release_year is not None:
+        track.release_year = payload.release_year
+    if payload.label is not None:
+        track.label = payload.label
+    if payload.album_art is not None:
+        track.album_art = payload.album_art
     
     track.edited_by_user = True
     pl = generate_platform_links(track.title, track.artist)
@@ -137,6 +152,11 @@ def add_manual_track(payload: TrackCreate, db: Session = Depends(get_db)):
         end_time=None,
         duration=None,
         confidence=100,
+        album_art=payload.album_art,
+        bpm=payload.bpm or 128,
+        musical_key=payload.musical_key or "A Minor",
+        release_year=payload.release_year or "2024",
+        label=payload.label or "Original Mix",
         platform_links=json.dumps(pl),
         is_identified=True,
         edited_by_user=True

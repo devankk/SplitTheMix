@@ -39,6 +39,11 @@ class Track(Base):
     end_time = Column(Float, nullable=True)
     duration = Column(Float, nullable=True)
     confidence = Column(Integer, default=0)
+    album_art = Column(String, nullable=True)
+    bpm = Column(Integer, nullable=True)
+    musical_key = Column(String, nullable=True)
+    release_year = Column(String, nullable=True)
+    label = Column(String, nullable=True)
     platform_links = Column(String, nullable=True)  # JSON string
     is_identified = Column(Boolean, default=True)
     edited_by_user = Column(Boolean, default=False)

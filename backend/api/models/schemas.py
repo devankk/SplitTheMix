@@ -20,6 +20,11 @@ class TrackResponse(BaseModel):
     end_time: Optional[float] = None
     duration: Optional[float] = None
     confidence: int
+    album_art: Optional[str] = None
+    bpm: Optional[int] = None
+    musical_key: Optional[str] = None
+    release_year: Optional[str] = None
+    label: Optional[str] = None
     platform_links: Optional[PlatformLinks] = None
     is_identified: bool
     edited_by_user: bool
@@ -53,6 +58,11 @@ class TrackUpdate(BaseModel):
     title: Optional[str] = None
     artist: Optional[str] = None
     start_time: Optional[float] = None
+    album_art: Optional[str] = None
+    bpm: Optional[int] = None
+    musical_key: Optional[str] = None
+    release_year: Optional[str] = None
+    label: Optional[str] = None
 
 
 class TrackCreate(BaseModel):
@@ -60,3 +70,8 @@ class TrackCreate(BaseModel):
     title: str
     artist: str
     start_time: float
+    album_art: Optional[str] = None
+    bpm: Optional[int] = None
+    musical_key: Optional[str] = None
+    release_year: Optional[str] = None
+    label: Optional[str] = None

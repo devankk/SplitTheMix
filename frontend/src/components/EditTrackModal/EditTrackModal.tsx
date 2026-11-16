@@ -7,7 +7,17 @@ interface EditTrackModalProps {
   track: Track | null
   jobId: string
   onClose: () => void
-  onSave: (data: { id?: string; jobId: string; title: string; artist: string; startTime: number }) => Promise<void>
+  onSave: (data: {
+    id?: string
+    jobId: string
+    title: string
+    artist: string
+    startTime: number
+    bpm?: number
+    musical_key?: string
+    release_year?: string
+    label?: string
+  }) => Promise<void>
   onDelete?: (id: string) => Promise<void>
 }
 
@@ -21,6 +31,10 @@ export const EditTrackModal: React.FC<EditTrackModalProps> = ({
   const [title, setTitle] = useState(track ? track.title : '')
   const [artist, setArtist] = useState(track ? track.artist : '')
   const [timeStr, setTimeStr] = useState(track ? formatTimestamp(track.start_time) : '00:00')
+  const [bpm, setBpm] = useState(track?.bpm ? String(track.bpm) : '')
+  const [musicalKey, setMusicalKey] = useState(track?.musical_key || '')
+  const [releaseYear, setReleaseYear] = useState(track?.release_year || '')
+  const [label, setLabel] = useState(track?.label || '')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -56,7 +70,11 @@ export const EditTrackModal: React.FC<EditTrackModalProps> = ({
         jobId,
         title: title.trim(),
         artist: artist.trim(),
-        startTime: seconds
+        startTime: seconds,
+        bpm: bpm.trim() ? parseInt(bpm, 10) : undefined,
+        musical_key: musicalKey.trim() || undefined,
+        release_year: releaseYear.trim() || undefined,
+        label: label.trim() || undefined,
       })
       onClose()
     } catch (err: any) {
@@ -69,14 +87,15 @@ export const EditTrackModal: React.FC<EditTrackModalProps> = ({
   const handleMarkUnknown = () => {
     setTitle('Unknown Track')
     setArtist('')
+    setBpm('')
+    setMusicalKey('')
+    setReleaseYear('')
+    setLabel('')
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
-      <div
-        className="w-full max-w-md bg-[#13131a] border border-[#1e1e2e] rounded-2xl shadow-2xl overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
+      <div className="w-full max-w-lg rounded-2xl bg-[#13131a] border border-[#1e1e2e] shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e1e2e]">
           <h3 className="font-semibold text-white text-base">
             {track ? 'Edit Track Details' : 'Add Manual Track Entry'}
@@ -89,7 +108,7 @@ export const EditTrackModal: React.FC<EditTrackModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
           {error && (
             <div className="p-3 text-xs rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
               {error}
@@ -145,20 +164,76 @@ export const EditTrackModal: React.FC<EditTrackModalProps> = ({
             />
           </div>
 
-          <div className="flex items-center justify-between gap-3 pt-3 mt-2 border-t border-[#1e1e2e]">
+          {/* Row: BPM and Musical Key */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
+                BPM (Tempo)
+              </label>
+              <input
+                type="number"
+                value={bpm}
+                onChange={e => setBpm(e.target.value)}
+                placeholder="e.g. 128"
+                className="w-full px-3.5 py-2 text-sm font-mono rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
+                Musical Scale / Key
+              </label>
+              <input
+                type="text"
+                value={musicalKey}
+                onChange={e => setMusicalKey(e.target.value)}
+                placeholder="e.g. G Minor, 8A"
+                className="w-full px-3.5 py-2 text-sm rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Row: Release Year and Record Label */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
+                Release Year
+              </label>
+              <input
+                type="text"
+                value={releaseYear}
+                onChange={e => setReleaseYear(e.target.value)}
+                placeholder="e.g. 2024"
+                className="w-full px-3.5 py-2 text-sm rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
+                Record Label / Album
+              </label>
+              <input
+                type="text"
+                value={label}
+                onChange={e => setLabel(e.target.value)}
+                placeholder="e.g. Mau5trap, Club Mix"
+                className="w-full px-3.5 py-2 text-sm rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 pt-4 mt-2 border-t border-[#1e1e2e]">
             {track && onDelete ? (
               <button
                 type="button"
                 onClick={async () => {
-                  if (window.confirm('Delete this detected track?')) {
+                  if (window.confirm(`Delete "${track.title}" from tracklist?`)) {
                     await onDelete(track.id)
                     onClose()
                   }
                 }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
+                <span>Delete Track</span>
               </button>
             ) : <div />}
 
@@ -166,17 +241,17 @@ export const EditTrackModal: React.FC<EditTrackModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-[#94a3b8] hover:bg-[#1e1e2e] transition-colors"
+                className="px-4 py-2 rounded-xl text-xs font-medium text-[#94a3b8] hover:text-white hover:bg-[#1e1e2e] transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-[#7c3aed] to-[#a855f7] text-white hover:opacity-90 disabled:opacity-50 transition-all shadow-md shadow-[#7c3aed]/20"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#7c3aed] to-[#ec4899] text-white text-xs font-semibold shadow-md shadow-[#7c3aed]/20 hover:opacity-90 disabled:opacity-50 transition-all"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>{isSubmitting ? 'Saving...' : 'Save Track'}</span>
+                <span>{isSubmitting ? 'Saving...' : 'Save Changes'}</span>
               </button>
             </div>
           </div>

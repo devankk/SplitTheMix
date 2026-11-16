@@ -19,8 +19,7 @@ export const Navbar: React.FC<NavbarProps> = ({ isDark, toggleTheme }) => {
           </div>
           <div className="flex flex-col">
             <span className="text-xl font-bold tracking-tight text-white flex items-center gap-1.5">
-              MixTrace
-              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-[#7c3aed]/20 text-[#a855f7] border border-[#7c3aed]/30">AI</span>
+              SplitTheMix
             </span>
             <span className="text-[10px] text-[#64748b] tracking-wider font-medium">DJ SET IDENTIFIER</span>
           </div>

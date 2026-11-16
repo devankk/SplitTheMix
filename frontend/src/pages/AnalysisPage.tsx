@@ -106,18 +106,34 @@ export const AnalysisPage: React.FC = () => {
     title: string
     artist: string
     startTime: number
+    bpm?: number
+    musical_key?: string
+    release_year?: string
+    label?: string
   }) => {
     if (data.id) {
       await updateTrackMutation.mutateAsync({
         id: data.id,
-        data: { title: data.title, artist: data.artist, start_time: data.startTime }
+        data: {
+          title: data.title,
+          artist: data.artist,
+          start_time: data.startTime,
+          bpm: data.bpm,
+          musical_key: data.musical_key,
+          release_year: data.release_year,
+          label: data.label,
+        }
       })
     } else {
       await createTrackMutation.mutateAsync({
         job_id: data.jobId,
         title: data.title,
         artist: data.artist,
-        start_time: data.startTime
+        start_time: data.startTime,
+        bpm: data.bpm,
+        musical_key: data.musical_key,
+        release_year: data.release_year,
+        label: data.label,
       })
     }
   }

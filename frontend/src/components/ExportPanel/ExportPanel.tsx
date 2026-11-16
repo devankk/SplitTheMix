@@ -14,10 +14,10 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ tracks, videoTitle }) 
   const buildTracklistText = () => {
     const lines = [
       `DJ Mix Tracklist - ${videoTitle || 'Mix'}`,
-      `Identified by MixTrace (https://github.com)`,
+      `Identified by SplitTheMix (https://github.com/devankk/SplitTheMix)`,
       '--------------------------------------------------',
       ...tracks.map(
-        t => `${formatTimestamp(t.start_time)} - ${t.title} - ${t.artist || 'Unknown Artist'}`
+        t => `${formatTimestamp(t.start_time)} - ${t.title} - ${t.artist || 'Unknown Artist'}${t.bpm ? ` [${t.bpm} BPM, ${t.musical_key || ''}]` : ''}`
       )
     ]
     return lines.join('\n')
@@ -40,13 +40,17 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ tracks, videoTitle }) 
   }
 
   const handleExportCsv = () => {
-    const headers = ['#', 'Start Time', 'Timestamp (Sec)', 'Title', 'Artist', 'Confidence', 'Identified']
+    const headers = ['#', 'Start Time', 'End Time', 'Title', 'Artist', 'Year', 'BPM', 'Scale / Key', 'Label', 'Confidence', 'Identified']
     const rows = tracks.map((t, i) => [
       i + 1,
       formatTimestamp(t.start_time),
-      Math.floor(t.start_time),
+      t.end_time ? formatTimestamp(t.end_time) : '',
       `"${t.title.replace(/"/g, '""')}"`,
       `"${(t.artist || '').replace(/"/g, '""')}"`,
+      `"${t.release_year || ''}"`,
+      t.bpm || '',
+      `"${t.musical_key || ''}"`,
+      `"${(t.label || '').replace(/"/g, '""')}"`,
       `${t.confidence}%`,
       t.is_identified ? 'Yes' : 'No'
     ])

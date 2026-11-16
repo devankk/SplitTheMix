@@ -7,9 +7,9 @@ export const Footer: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
         <div className="flex items-center gap-2">
           <Disc3 className="w-4 h-4 text-[#a855f7]" />
-          <span className="font-medium text-[#94a3b8]">MixTrace &copy; {new Date().getFullYear()}</span>
+          <span className="font-medium text-[#94a3b8]">SplitTheMix &copy; {new Date().getFullYear()}</span>
           <span>&middot;</span>
-          <span>AI-Powered DJ Mix Tracklist Identification</span>
+          <span>Automated DJ Mix Tracklist Identification</span>
         </div>
         <div className="flex items-center gap-4 text-xs">
           <span>ACRCloud &amp; AudD Audio Recognition Engine</span>

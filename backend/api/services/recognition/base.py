@@ -8,6 +8,11 @@ class RecognitionResult:
     artist: str
     confidence: int            # 0–100
     absolute_timestamp: float  # seconds from video start
+    album_art: str | None = None
+    bpm: int | None = None
+    musical_key: str | None = None
+    release_year: str | None = None
+    label: str | None = None
 
 
 class BaseRecognizer(ABC):

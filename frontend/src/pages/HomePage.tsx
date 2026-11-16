@@ -57,7 +57,7 @@ export const HomePage: React.FC = () => {
 
         <p className="text-sm sm:text-base text-[#94a3b8] max-w-xl mx-auto leading-relaxed">
           Paste any YouTube, SoundCloud, or Mixcloud DJ set, festival live recording, or continuous music compilation.
-          Our chunk-based AI engine fingerprints each transition and recovers the exact chronological tracklist.
+          Our chunk-based acoustic engine fingerprints each transition and recovers the exact chronological tracklist.
         </p>
       </div>
 
