@@ -2,7 +2,7 @@ import axios from 'axios'
 import type { AnalysisJob, Track, TrackUpdate, TrackCreate } from '../types'
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: (import.meta as any).env?.VITE_API_BASE_URL || '/api',
   timeout: 45000
 })
 

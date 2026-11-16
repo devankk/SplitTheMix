@@ -35,6 +35,7 @@ export interface AnalysisJob {
   channel_name: string | null
   thumbnail_url: string | null
   video_duration: number | null
+  duration?: number | null
   status: JobStatus
   progress: number
   stage_message: string

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Loader2, Music4, CheckCircle2, AlertTriangle, Disc } from 'lucide-react'
+import { Disc3, CheckCircle2, AlertTriangle, Activity, Clock } from 'lucide-react'
 import type { AnalysisJob } from '../../types'
 
 interface ProgressTrackerProps {
@@ -32,59 +32,73 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({ job }) => {
   const isFailed = job.status === 'failed'
 
   return (
-    <div className="p-4 sm:p-5 rounded-2xl bg-[#13131a] border border-[#1e1e2e] relative overflow-hidden shadow-lg">
+    <div className="p-4 sm:p-5 rounded-lg bg-[#141414] border border-[#292929] relative overflow-hidden shadow-console-sm">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           {!isComplete && !isFailed ? (
-            <Disc className="w-5 h-5 text-[#a855f7] animate-spin" />
+            <div className="w-8 h-8 rounded bg-[#202020] border border-[#292929] flex items-center justify-center text-[#E32636]">
+              <Disc3 className="w-4 h-4 animate-spin" />
+            </div>
           ) : isComplete ? (
-            <CheckCircle2 className="w-5 h-5 text-[#22c55e]" />
+            <div className="w-8 h-8 rounded bg-[#202020] border border-[#292929] flex items-center justify-center text-[#22c55e]">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
           ) : (
-            <AlertTriangle className="w-5 h-5 text-[#ef4444]" />
+            <div className="w-8 h-8 rounded bg-[#202020] border border-[#292929] flex items-center justify-center text-[#E32636]">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
           )}
+
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wider text-[#94a3b8]">
+            <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-[#929292]">
               {job.status === 'downloading'
-                ? 'Downloading Set'
+                ? 'Ingesting Audio Stream'
                 : job.status === 'processing'
-                ? 'Deep Fingerprint Scanning'
+                ? 'Acoustic Signature Analysis'
                 : job.status === 'queued'
-                ? 'Queue Processing'
+                ? 'Rack Queue Standby'
                 : job.status === 'completed'
-                ? 'Identification Finished'
-                : 'Process Error'}
+                ? 'Analysis Complete'
+                : 'Processing Error'}
             </span>
-            <p className="text-xs text-[#cbd5e1] font-medium mt-0.5">{job.stage_message}</p>
+            <p className="text-xs text-[#F4F1ED] font-mono mt-0.5">{job.stage_message}</p>
           </div>
         </div>
 
-        <div className="text-right">
-          <span className="text-lg font-bold font-mono text-white">{job.progress}%</span>
+        <div className="text-right font-mono">
+          <span className="text-lg font-bold text-[#F4F1ED]">{job.progress}%</span>
           {!isComplete && !isFailed && (
-            <p className="text-[10px] text-[#64748b]">Elapsed: {formatTimer(elapsed)}</p>
+            <div className="flex items-center gap-1 text-[10px] text-[#5c5c5c] mt-0.5">
+              <Clock className="w-3 h-3 text-[#E32636]" />
+              <span>Elapsed: {formatTimer(elapsed)}</span>
+            </div>
           )}
         </div>
       </div>
 
-      <div className="w-full h-2 rounded-full bg-[#0a0a0f] overflow-hidden p-0.5 border border-[#1e1e2e]">
+      {/* Progress Track */}
+      <div className="w-full h-1.5 rounded-full bg-[#090909] overflow-hidden border border-[#292929]">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${
+          className={`h-full rounded-full transition-all duration-300 ${
             isFailed
-              ? 'bg-[#ef4444]'
-              : 'bg-gradient-to-r from-[#7c3aed] via-[#a855f7] to-[#ec4899]'
+              ? 'bg-[#E32636]'
+              : isComplete
+              ? 'bg-[#22c55e]'
+              : 'bg-[#E32636]'
           }`}
-          style={{ width: `${Math.max(5, job.progress)}%` }}
+          style={{ width: `${Math.max(4, job.progress)}%` }}
         />
       </div>
 
-      <div className="flex items-center justify-between mt-3 text-[11px] text-[#64748b]">
+      {/* Bottom Status Metrics */}
+      <div className="flex items-center justify-between mt-3 text-[11px] font-mono text-[#929292] pt-1">
         <div className="flex items-center gap-1.5">
-          <Music4 className="w-3.5 h-3.5 text-[#a855f7]" />
+          <Activity className="w-3.5 h-3.5 text-[#E32636]" />
           <span>
-            <strong className="text-white">{job.tracks_found}</strong> tracks isolated
+            <strong className="text-[#F4F1ED]">{job.tracks_found}</strong> tracks isolated
           </span>
         </div>
-        <span>Overlapping 30s chunking analysis &bull; Non-destructive detection</span>
+        <span className="text-[#5c5c5c]">12s chunks &bull; Stride 50s &bull; Parallel Workers</span>
       </div>
     </div>
   )

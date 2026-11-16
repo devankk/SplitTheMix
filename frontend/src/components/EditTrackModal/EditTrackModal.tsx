@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { X, Save, Trash2, HelpCircle } from 'lucide-react'
+import { X, Save, Clock, Music, Sliders, Calendar, Tag, AlertCircle } from 'lucide-react'
 import type { Track } from '../../types'
 import { formatTimestamp, parseTimestamp } from '../../utils/format'
 
 interface EditTrackModalProps {
   track: Track | null
   jobId: string
+  isOpen: boolean
+  isAddMode?: boolean
   onClose: () => void
   onSave: (data: {
     id?: string
@@ -18,242 +20,225 @@ interface EditTrackModalProps {
     release_year?: string
     label?: string
   }) => Promise<void>
-  onDelete?: (id: string) => Promise<void>
 }
+
+const MUSICAL_KEYS = [
+  'C Major', 'A Minor', 'G Major', 'E Minor', 'D Major', 'B Minor',
+  'A Major', 'F# Minor', 'E Major', 'C# Minor', 'B Major', 'G# Minor',
+  'F Major', 'D Minor', 'Bb Major', 'G Minor', 'Eb Major', 'C Minor',
+  'Ab Major', 'F Minor', 'Db Major', 'Bb Minor'
+]
 
 export const EditTrackModal: React.FC<EditTrackModalProps> = ({
   track,
   jobId,
+  isOpen,
+  isAddMode = false,
   onClose,
-  onSave,
-  onDelete
+  onSave
 }) => {
-  const [title, setTitle] = useState(track ? track.title : '')
-  const [artist, setArtist] = useState(track ? track.artist : '')
-  const [timeStr, setTimeStr] = useState(track ? formatTimestamp(track.start_time) : '00:00')
-  const [bpm, setBpm] = useState(track?.bpm ? String(track.bpm) : '')
-  const [musicalKey, setMusicalKey] = useState(track?.musical_key || '')
-  const [releaseYear, setReleaseYear] = useState(track?.release_year || '')
-  const [label, setLabel] = useState(track?.label || '')
+  const [title, setTitle] = useState('')
+  const [artist, setArtist] = useState('')
+  const [timeStr, setTimeStr] = useState('00:00')
+  const [bpm, setBpm] = useState<string>('')
+  const [musicalKey, setMusicalKey] = useState<string>('')
+  const [releaseYear, setReleaseYear] = useState<string>('')
+  const [label, setLabel] = useState<string>('')
+  const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+    if (track) {
+      setTitle(track.title || '')
+      setArtist(track.artist || '')
+      setTimeStr(formatTimestamp(track.start_time))
+      setBpm(track.bpm ? String(track.bpm) : '')
+      setMusicalKey(track.musical_key || '')
+      setReleaseYear(track.release_year || '')
+      setLabel(track.label || '')
+    } else {
+      setTitle('')
+      setArtist('')
+      setTimeStr('00:00')
+      setBpm('')
+      setMusicalKey('')
+      setReleaseYear('')
+      setLabel('')
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+    setError(null)
+  }, [track, isOpen])
+
+  if (!isOpen) return null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
 
     if (!title.trim()) {
-      setError('Please provide a track title.')
+      setError('Track title is required.')
       return
     }
 
-    let seconds = 0
-    try {
-      seconds = parseTimestamp(timeStr)
-    } catch (err: any) {
-      setError(err.message || 'Invalid timestamp format (use MM:SS or HH:MM:SS)')
+    const seconds = parseTimestamp(timeStr)
+    if (seconds < 0) {
+      setError('Invalid timestamp format. Use MM:SS or HH:MM:SS.')
       return
     }
 
     try {
-      setIsSubmitting(true)
+      setIsSaving(true)
       await onSave({
-        id: track ? track.id : undefined,
+        id: track?.id,
         jobId,
         title: title.trim(),
         artist: artist.trim(),
         startTime: seconds,
-        bpm: bpm.trim() ? parseInt(bpm, 10) : undefined,
-        musical_key: musicalKey.trim() || undefined,
+        bpm: bpm ? parseInt(bpm, 10) : undefined,
+        musical_key: musicalKey || undefined,
         release_year: releaseYear.trim() || undefined,
         label: label.trim() || undefined,
       })
       onClose()
     } catch (err: any) {
-      setError(err.message || 'Failed to save track changes.')
+      setError(err?.message || 'Failed to save track changes.')
     } finally {
-      setIsSubmitting(false)
+      setIsSaving(false)
     }
   }
 
-  const handleMarkUnknown = () => {
-    setTitle('Unknown Track')
-    setArtist('')
-    setBpm('')
-    setMusicalKey('')
-    setReleaseYear('')
-    setLabel('')
-  }
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
-      <div className="w-full max-w-lg rounded-2xl bg-[#13131a] border border-[#1e1e2e] shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e1e2e]">
-          <h3 className="font-semibold text-white text-base">
-            {track ? 'Edit Track Details' : 'Add Manual Track Entry'}
-          </h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+      <div className="w-full max-w-lg rounded-lg bg-[#141414] border border-[#292929] shadow-console-md overflow-hidden text-xs font-mono">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#292929] bg-[#090909]">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#E32636]" />
+            <h3 className="text-sm font-bold text-[#F4F1ED]">
+              {isAddMode ? 'Add Manual Timecode Entry' : 'Edit Track Metadata'}
+            </h3>
+          </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-[#64748b] hover:text-white hover:bg-[#1e1e2e] transition-colors"
+            className="p-1 rounded hover:bg-[#202020] text-[#929292] hover:text-[#F4F1ED] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {error && (
-            <div className="p-3 text-xs rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
-              {error}
+            <div className="p-2.5 rounded bg-[#090909] border border-[#E32636]/40 text-[#E32636] flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
-              Track Title *
-            </label>
+          <div className="space-y-1">
+            <label className="text-[11px] text-[#929292] uppercase">Song Title *</label>
             <input
               type="text"
-              required
               value={title}
               onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. Strobe"
-              className="w-full px-3.5 py-2 text-sm rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+              placeholder="e.g. Dark Horse"
+              className="w-full px-3 py-2 rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] focus:outline-none focus:border-[#E32636] transition-colors"
+              required
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
-              Artist Name
-            </label>
+          <div className="space-y-1">
+            <label className="text-[11px] text-[#929292] uppercase">Original Artist</label>
             <input
               type="text"
               value={artist}
               onChange={e => setArtist(e.target.value)}
-              placeholder="e.g. deadmau5"
-              className="w-full px-3.5 py-2 text-sm rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+              placeholder="e.g. Katy Perry"
+              className="w-full px-3 py-2 rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] focus:outline-none focus:border-[#E32636] transition-colors"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-[#94a3b8] mb-1.5 flex items-center justify-between">
-              <span>Start Timestamp (MM:SS or HH:MM:SS) *</span>
-              <button
-                type="button"
-                onClick={handleMarkUnknown}
-                className="text-[11px] text-[#a855f7] hover:underline flex items-center gap-1"
-              >
-                <HelpCircle className="w-3 h-3" />
-                Mark as Unknown
-              </button>
-            </label>
-            <input
-              type="text"
-              required
-              value={timeStr}
-              onChange={e => setTimeStr(e.target.value)}
-              placeholder="04:32"
-              className="w-full px-3.5 py-2 text-sm font-mono rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
-            />
-          </div>
-
-          {/* Row: BPM and Musical Key */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
-                BPM (Tempo)
-              </label>
+            <div className="space-y-1">
+              <label className="text-[11px] text-[#929292] uppercase">Timecode (MM:SS)</label>
+              <input
+                type="text"
+                value={timeStr}
+                onChange={e => setTimeStr(e.target.value)}
+                placeholder="04:10"
+                className="w-full px-3 py-2 rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] tabular-nums focus:outline-none focus:border-[#E32636] transition-colors"
+                required
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-[#929292] uppercase">Tempo (BPM)</label>
               <input
                 type="number"
                 value={bpm}
                 onChange={e => setBpm(e.target.value)}
-                placeholder="e.g. 128"
-                className="w-full px-3.5 py-2 text-sm font-mono rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
-                Musical Scale / Key
-              </label>
-              <input
-                type="text"
-                value={musicalKey}
-                onChange={e => setMusicalKey(e.target.value)}
-                placeholder="e.g. G Minor, 8A"
-                className="w-full px-3.5 py-2 text-sm rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+                placeholder="132"
+                min="60"
+                max="220"
+                className="w-full px-3 py-2 rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] tabular-nums focus:outline-none focus:border-[#E32636] transition-colors"
               />
             </div>
           </div>
 
-          {/* Row: Release Year and Record Label */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
-                Release Year
-              </label>
+            <div className="space-y-1">
+              <label className="text-[11px] text-[#929292] uppercase">Musical Key / Scale</label>
+              <select
+                value={musicalKey}
+                onChange={e => setMusicalKey(e.target.value)}
+                className="w-full px-3 py-2 rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] focus:outline-none focus:border-[#E32636] transition-colors cursor-pointer"
+              >
+                <option value="">Unknown Scale</option>
+                {MUSICAL_KEYS.map(k => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] text-[#929292] uppercase">Release Year</label>
               <input
                 type="text"
                 value={releaseYear}
                 onChange={e => setReleaseYear(e.target.value)}
-                placeholder="e.g. 2024"
-                className="w-full px-3.5 py-2 text-sm rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#94a3b8] mb-1.5">
-                Record Label / Album
-              </label>
-              <input
-                type="text"
-                value={label}
-                onChange={e => setLabel(e.target.value)}
-                placeholder="e.g. Mau5trap, Club Mix"
-                className="w-full px-3.5 py-2 text-sm rounded-xl bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+                placeholder="2023"
+                className="w-full px-3 py-2 rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] tabular-nums focus:outline-none focus:border-[#E32636] transition-colors"
               />
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 pt-4 mt-2 border-t border-[#1e1e2e]">
-            {track && onDelete ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  if (window.confirm(`Delete "${track.title}" from tracklist?`)) {
-                    await onDelete(track.id)
-                    onClose()
-                  }
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition-colors"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Track</span>
-              </button>
-            ) : <div />}
+          <div className="space-y-1">
+            <label className="text-[11px] text-[#929292] uppercase">Record Label / Album</label>
+            <input
+              type="text"
+              value={label}
+              onChange={e => setLabel(e.target.value)}
+              placeholder="e.g. Capitol Records"
+              className="w-full px-3 py-2 rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] focus:outline-none focus:border-[#E32636] transition-colors"
+            />
+          </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-[#94a3b8] hover:text-white hover:bg-[#1e1e2e] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#7c3aed] to-[#ec4899] text-white text-xs font-semibold shadow-md shadow-[#7c3aed]/20 hover:opacity-90 disabled:opacity-50 transition-all"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>{isSubmitting ? 'Saving...' : 'Save Changes'}</span>
-              </button>
-            </div>
+          {/* Action Buttons */}
+          <div className="pt-3 border-t border-[#202020] flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded bg-[#202020] hover:bg-[#292929] text-[#929292] hover:text-[#F4F1ED] transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="px-4 py-2 rounded bg-[#E32636] hover:bg-[#f03a4b] text-white font-semibold transition-colors flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{isSaving ? 'Saving...' : 'Save to Console'}</span>
+            </button>
           </div>
         </form>
       </div>

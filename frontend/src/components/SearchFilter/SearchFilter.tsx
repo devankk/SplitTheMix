@@ -22,7 +22,7 @@ export const SearchFilter: React.FC<SearchFilterProps> = ({ tracks, onFilterChan
     if (term.trim()) {
       const q = term.toLowerCase()
       result = result.filter(
-        t => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q)
+        t => t.title.toLowerCase().includes(q) || (t.artist && t.artist.toLowerCase().includes(q))
       )
     }
 
@@ -54,15 +54,15 @@ export const SearchFilter: React.FC<SearchFilterProps> = ({ tracks, onFilterChan
   }
 
   return (
-    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-[#13131a] border border-[#1e1e2e]">
+    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-lg bg-[#141414] border border-[#292929]">
       <div className="relative flex-1">
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748b]" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#929292]" />
         <input
           type="text"
           value={searchTerm}
           onChange={handleSearch}
-          placeholder="Search by song title or artist..."
-          className="w-full pl-9 pr-4 py-1.5 text-xs sm:text-sm rounded-lg bg-[#0a0a0f] border border-[#1e1e2e] text-white placeholder-[#64748b] focus:outline-none focus:border-[#7c3aed] transition-colors"
+          placeholder="Filter by track title or artist..."
+          className="w-full pl-9 pr-3 py-1.5 text-xs font-mono rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] placeholder-[#5c5c5c] focus:outline-none focus:border-[#E32636] transition-colors"
         />
       </div>
 
@@ -71,7 +71,7 @@ export const SearchFilter: React.FC<SearchFilterProps> = ({ tracks, onFilterChan
           <select
             value={selectedArtist}
             onChange={handleArtistSelect}
-            className="text-xs sm:text-sm px-3 py-1.5 pr-8 rounded-lg bg-[#0a0a0f] border border-[#1e1e2e] text-[#cbd5e1] focus:outline-none focus:border-[#7c3aed] transition-colors appearance-none cursor-pointer"
+            className="text-xs font-mono px-3 py-1.5 pr-8 rounded bg-[#090909] border border-[#292929] text-[#F4F1ED] focus:outline-none focus:border-[#E32636] transition-colors appearance-none cursor-pointer"
           >
             <option value="ALL">All Artists ({tracks.length})</option>
             {artists.map(art => (
@@ -80,15 +80,15 @@ export const SearchFilter: React.FC<SearchFilterProps> = ({ tracks, onFilterChan
               </option>
             ))}
           </select>
-          <SlidersHorizontal className="absolute right-2.5 w-3.5 h-3.5 text-[#64748b] pointer-events-none" />
+          <SlidersHorizontal className="absolute right-2.5 w-3.5 h-3.5 text-[#5c5c5c] pointer-events-none" />
         </div>
 
         <button
           onClick={toggleSort}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0a0a0f] hover:bg-[#1e1e2e] border border-[#1e1e2e] text-xs sm:text-sm text-[#cbd5e1] transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[#090909] hover:bg-[#202020] border border-[#292929] text-xs font-mono text-[#F4F1ED] transition-colors cursor-pointer"
         >
-          <ArrowUpDown className="w-3.5 h-3.5 text-[#a855f7]" />
-          <span>{sortOrder === 'asc' ? 'Early First' : 'Late First'}</span>
+          <ArrowUpDown className="w-3.5 h-3.5 text-[#E32636]" />
+          <span>{sortOrder === 'asc' ? '00:00 ↑' : 'Latest ↓'}</span>
         </button>
       </div>
     </div>

@@ -5,12 +5,34 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: { DEFAULT: '#0a0a0f', surface: '#13131a', border: '#1e1e2e' },
-        accent: { purple: '#7c3aed', 'purple-light': '#a855f7', pink: '#ec4899' },
-        text: { primary: '#f1f5f9', muted: '#64748b' },
-        success: '#22c55e', warning: '#f59e0b', danger: '#ef4444'
+        console: {
+          bg: '#090909',
+          card: '#141414',
+          surface: '#202020',
+          border: '#292929',
+          'border-muted': '#1f1f1f',
+          accent: '#E32636',
+          'accent-hover': '#f03a4b',
+          'accent-deep': '#8D1422',
+          'accent-dim': 'rgba(227, 38, 54, 0.12)',
+          text: '#F4F1ED',
+          muted: '#929292',
+          subtle: '#5c5c5c',
+          unknown: '#3a3a3a',
+          success: '#22c55e',
+          warning: '#f59e0b',
+        }
       },
-      fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] }
+      fontFamily: {
+        sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['Space Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+      },
+      boxShadow: {
+        'console-sm': '0 1px 2px 0 rgba(0, 0, 0, 0.8)',
+        'console-md': '0 4px 12px 0 rgba(0, 0, 0, 0.9)',
+        'console-glow': '0 0 20px -3px rgba(227, 38, 54, 0.25)',
+      }
     }
   },
   plugins: []

@@ -1,13 +1,31 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { ArrowLeft, Share2, Check, AlertCircle, RefreshCw, Layers, MonitorPlay } from 'lucide-react'
+import {
+  ArrowLeft,
+  Share2,
+  Check,
+  AlertCircle,
+  RefreshCw,
+  Layers,
+  MonitorPlay,
+  Plus,
+  ExternalLink,
+  Activity,
+  Clock,
+  Music,
+  HelpCircle,
+  Maximize2,
+  Minimize2,
+  Volume2
+} from 'lucide-react'
 import { useAnalysis, useUpdateTrack, useCreateTrack, useDeleteTrack } from '../hooks/useAnalysis'
-import { VideoPreview } from '../components/VideoPreview/VideoPreview'
 import { ProgressTracker } from '../components/ProgressTracker/ProgressTracker'
-import { TrackList } from '../components/TrackList/TrackList'
 import { SearchFilter } from '../components/SearchFilter/SearchFilter'
 import { ExportPanel } from '../components/ExportPanel/ExportPanel'
 import { EditTrackModal } from '../components/EditTrackModal/EditTrackModal'
+import { AudioTimeline } from '../components/AudioTimeline/AudioTimeline'
+import { TrackTable } from '../components/TrackTable/TrackTable'
+import { formatDuration, formatTimestamp } from '../utils/format'
 import type { Track } from '../types'
 
 declare global {
@@ -33,6 +51,7 @@ export const AnalysisPage: React.FC = () => {
   // In-page synchronized YouTube player state
   const [currentSeekTime, setCurrentSeekTime] = useState<number>(0)
   const [showEmbeddedPlayer, setShowEmbeddedPlayer] = useState<boolean>(true)
+  const [isCompactPlayer, setIsCompactPlayer] = useState<boolean>(false)
   const playerRef = useRef<any>(null)
   const [isPlayerReady, setIsPlayerReady] = useState(false)
 
@@ -74,13 +93,30 @@ export const AnalysisPage: React.FC = () => {
     }
   }, [job?.video_id])
 
+  // Real-time playback polling: smoothly advances currentSeekTime as video plays
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+        try {
+          const t = playerRef.current.getCurrentTime()
+          if (typeof t === 'number' && !isNaN(t)) {
+            setCurrentSeekTime(Math.floor(t))
+          }
+        } catch {
+          // ignore cross-origin access errors
+        }
+      }
+    }, 500)
+    return () => clearInterval(timer)
+  }, [])
+
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href)
     setShared(true)
     setTimeout(() => setShared(false), 2000)
   }
 
-  // Smooth in-place seeking — keeps the user's scroll position locked!
+  // Smooth in-place seeking — locks scroll position so page never jumps!
   const handleSeek = (seconds: number) => {
     setCurrentSeekTime(seconds)
     setShowEmbeddedPlayer(true)
@@ -97,7 +133,6 @@ export const AnalysisPage: React.FC = () => {
         )
       }
     }
-    // We intentionally DO NOT call scrollIntoView here so your scroll position never jumps!
   }
 
   const handleSaveTrack = async (data: {
@@ -139,159 +174,257 @@ export const AnalysisPage: React.FC = () => {
   }
 
   const handleDeleteTrack = async (trackId: string) => {
-    await deleteTrackMutation.mutateAsync(trackId)
+    if (window.confirm('Delete this track entry from the tracklist?')) {
+      await deleteTrackMutation.mutateAsync(trackId)
+    }
   }
 
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3">
-        <RefreshCw className="w-8 h-8 text-[#a855f7] animate-spin" />
-        <p className="text-sm text-[#94a3b8]">Loading analysis details...</p>
+        <div className="w-10 h-10 rounded-lg bg-[#141414] border border-[#292929] flex items-center justify-center text-[#E32636]">
+          <Activity className="w-5 h-5 animate-pulse" />
+        </div>
+        <p className="text-xs font-mono text-[#9CA3AF]">Connecting to Studio Console engine...</p>
       </div>
     )
   }
 
   if (error || !job) {
     return (
-      <div className="max-w-xl mx-auto my-16 p-6 rounded-2xl bg-[#13131a] border border-[#1e1e2e] text-center">
-        <AlertCircle className="w-10 h-10 text-[#ef4444] mx-auto mb-3" />
-        <h3 className="text-lg font-bold text-white">Analysis Job Not Found</h3>
-        <p className="text-xs text-[#64748b] mt-1 mb-6">
-          Could not retrieve data for this mix ID. It may have expired or was removed.
-        </p>
+      <div className="max-w-xl mx-auto px-4 py-16 text-center space-y-4">
+        <div className="w-12 h-12 rounded-lg bg-[#141414] border border-[#E32636]/40 flex items-center justify-center text-[#E32636] mx-auto">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-lg font-bold font-display text-white">Analysis Job Not Found</h2>
+          <p className="text-xs text-[#9CA3AF]">
+            The requested mix analysis job could not be retrieved. Please verify the URL or start a new analysis.
+          </p>
+        </div>
         <Link
           to="/"
-          className="px-5 py-2.5 rounded-xl bg-[#1e1e2e] hover:bg-[#2a2a38] text-white text-xs font-semibold inline-flex items-center gap-2"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#E32636] text-white text-xs font-mono uppercase tracking-wider font-semibold"
         >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Home</span>
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Return to Console</span>
         </Link>
       </div>
     )
   }
 
-  const displayedTracks = filteredTracks ?? job.tracks
+  const displayTracks = filteredTracks ?? job.tracks
+  const identifiedTracks = job.tracks.filter(t => t.is_identified && t.title.toLowerCase() !== 'unknown track')
+  const unknownTracks = job.tracks.filter(t => !t.is_identified || t.title.toLowerCase() === 'unknown track')
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-      {/* Top Navigation Row */}
-      <div className="flex items-center justify-between">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      {/* Top Workspace Bar */}
+      <div className="flex items-center justify-between border-b border-[#292929] pb-3.5">
         <Link
-          to="/"
-          className="inline-flex items-center gap-2 text-xs font-semibold text-[#94a3b8] hover:text-white transition-colors"
+          to="/library"
+          className="inline-flex items-center gap-1.5 text-xs font-mono text-[#9CA3AF] hover:text-white transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
-          <span>New Analysis</span>
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to Library</span>
         </Link>
 
         <div className="flex items-center gap-2">
-          {job.video_id && (
-            <button
-              onClick={() => setShowEmbeddedPlayer(prev => !prev)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#13131a] hover:bg-[#1e1e2e] border border-[#1e1e2e] text-xs font-medium text-[#cbd5e1] hover:text-white transition-all"
+          {job.url && (
+            <a
+              href={job.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#141414] hover:bg-[#202020] border border-[#292929] text-xs font-mono text-[#D1D5DB] hover:text-white transition-colors"
             >
-              <MonitorPlay className="w-3.5 h-3.5 text-[#a855f7]" />
-              <span>{showEmbeddedPlayer ? 'Hide Player' : 'Show Player'}</span>
-            </button>
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Original Source</span>
+            </a>
           )}
 
           <button
             onClick={handleShare}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#13131a] hover:bg-[#1e1e2e] border border-[#1e1e2e] text-xs font-medium text-[#cbd5e1] hover:text-white transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#141414] hover:bg-[#202020] border border-[#292929] text-xs font-mono text-white transition-colors cursor-pointer"
           >
-            {shared ? <Check className="w-3.5 h-3.5 text-[#22c55e]" /> : <Share2 className="w-3.5 h-3.5 text-[#a855f7]" />}
-            <span>{shared ? 'Link Copied!' : 'Share Results'}</span>
+            {shared ? <Check className="w-3.5 h-3.5 text-[#22c55e]" /> : <Share2 className="w-3.5 h-3.5 text-[#E32636]" />}
+            <span>{shared ? 'Link Copied' : 'Share Set'}</span>
           </button>
         </div>
       </div>
 
-      {/* Main Analysis Body: Sticky Side-by-Side Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column (Desktop 5 cols): STICKY PLAYER & VIDEO OVERVIEW */}
-        <div className="lg:col-span-5 lg:sticky lg:top-20 space-y-4 z-20">
-          {job.video_id && !job.video_id.startsWith('sc_') && !job.video_id.startsWith('mc_') && showEmbeddedPlayer ? (
-            <div
-              id="player-container"
-              className="rounded-2xl overflow-hidden bg-black border border-[#1e1e2e] shadow-2xl aspect-video w-full"
-            >
-              <iframe
-                id="youtube-embedded-player"
-                src={`https://www.youtube.com/embed/${job.video_id}?enablejsapi=1&autoplay=0&origin=${window.location.origin}`}
-                title={job.video_title || 'Mix Player'}
-                className="w-full h-full border-0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            </div>
-          ) : (
-            <VideoPreview job={job} />
-          )}
-
-          {/* Compact summary under player */}
-          <div className="p-3.5 rounded-xl bg-[#13131a] border border-[#1e1e2e] text-xs text-[#94a3b8] flex items-center justify-between">
-            <span className="truncate max-w-[220px] font-semibold text-white">
-              {job.video_title || 'Mix'}
-            </span>
-            <span className="font-mono text-[#a855f7]">
-              {job.tracks.length} Tracks Identified
-            </span>
-          </div>
-
-          <ProgressTracker job={job} />
-        </div>
-
-        {/* Right Column (Desktop 7 cols): INDEPENDENTLY SCROLLABLE TRACKLIST */}
-        <div className="lg:col-span-7 space-y-4">
-          {job.tracks.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-[#1e1e2e] pb-3">
+      {/* Main Studio Console Layout: Split into Pinned Monitor/Timeline Column + Scrollable Tracklist Deck */}
+      <div className="flex flex-col lg:flex-row items-start gap-6">
+        {/* ========================================================= */}
+        {/* LEFT COLUMN: PINNED SYNCHRONIZED MONITOR + TIMELINE RACK */}
+        {/* ALWAYS VISIBLE WHILE SCROLLING TRACKS! */}
+        {/* ========================================================= */}
+        <div className="w-full lg:w-[480px] xl:w-[520px] lg:sticky lg:top-20 self-start space-y-4 shrink-0 z-30 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto pr-0.5">
+          {/* Synchronized Embedded Video Monitor */}
+          {job.video_id && (
+            <div className="rounded-xl bg-[#141414] border border-[#292929] overflow-hidden shadow-console-md">
+              {/* Monitor Control Bar */}
+              <div className="p-3 bg-[#090909] border-b border-[#292929] flex items-center justify-between text-xs font-mono">
                 <div className="flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-[#a855f7]" />
-                  <h3 className="text-base font-bold text-white">Identified Tracklist</h3>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-[#1e1e2e] text-[#94a3b8] font-mono">
-                    {job.tracks.length}
-                  </span>
+                  <span className="w-2 h-2 rounded-full bg-[#E32636] shadow-[0_0_8px_#E32636] animate-pulse" />
+                  <span className="font-display font-bold text-white">SYNCHRONIZED MONITOR</span>
                 </div>
-
-                <ExportPanel tracks={job.tracks} videoTitle={job.video_title} />
+                <div className="flex items-center gap-2 text-[11px] text-[#9CA3AF]">
+                  <button
+                    onClick={() => setIsCompactPlayer(!isCompactPlayer)}
+                    className="hover:text-white transition-colors flex items-center gap-1"
+                    title={isCompactPlayer ? 'Expand Video' : 'Compact Video'}
+                  >
+                    {isCompactPlayer ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
+                    <span>{isCompactPlayer ? 'Expand' : 'Compact'}</span>
+                  </button>
+                  <span>•</span>
+                  <button
+                    onClick={() => setShowEmbeddedPlayer(!showEmbeddedPlayer)}
+                    className="text-[#E32636] hover:underline"
+                  >
+                    {showEmbeddedPlayer ? 'Hide' : 'Show'}
+                  </button>
+                </div>
               </div>
 
-              <SearchFilter tracks={job.tracks} onFilterChange={setFilteredTracks} />
+              {/* Video Frame */}
+              {showEmbeddedPlayer && (
+                <div className={`relative w-full bg-black transition-all duration-200 ${isCompactPlayer ? 'h-44 sm:h-52' : 'aspect-video'}`}>
+                  <div id="youtube-embedded-player" className="w-full h-full" />
+                </div>
+              )}
+            </div>
+          )}
 
-              <TrackList
-                tracks={displayedTracks}
-                videoId={job.video_id}
-                jobId={job.id}
-                onEdit={t => {
-                  setActiveEditingTrack(t)
-                  setIsAddMode(false)
-                }}
-                onDelete={handleDeleteTrack}
-                onAddManual={() => {
+          {/* Interactive Acoustic Timeline — Pinned & Synchronized with Video */}
+          <AudioTimeline
+            tracks={job.tracks}
+            totalDurationSec={job.video_duration || job.duration || 0}
+            currentTimeSec={currentSeekTime}
+            onSeek={handleSeek}
+          />
+
+          {/* Compact Mix Meta & Export Actions in Left Rack */}
+          <div className="rounded-xl bg-[#141414] border border-[#292929] p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded bg-[#090909] border border-[#292929] overflow-hidden shrink-0">
+                {job.thumbnail_url ? (
+                  <img src={job.thumbnail_url} alt="Set Cover" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[#5c5c5c]">
+                    <Music className="w-5 h-5" />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-display font-bold text-sm text-white truncate">
+                  {job.video_title || 'DJ Mix Set'}
+                </h3>
+                <div className="flex items-center gap-2 text-xs font-mono text-[#9CA3AF]">
+                  <span>{identifiedTracks.length} tracks</span>
+                  <span>•</span>
+                  <span>{formatDuration(job.video_duration || job.duration || 0)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Direct Export Buttons */}
+            <ExportPanel tracks={job.tracks} job={job} />
+          </div>
+
+          {/* Dedicated Unknown Segments Box */}
+          {unknownTracks.length > 0 && (
+            <div className="rounded-xl bg-[#141414] border border-[#292929] p-3.5 space-y-2">
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="font-bold text-[#f59e0b] flex items-center gap-1.5">
+                  <HelpCircle className="w-3.5 h-3.5" /> Unknown Segments ({unknownTracks.length})
+                </span>
+                <span className="text-[10px] text-[#6B7280]">Dubplates / VIP IDs</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {unknownTracks.map(ut => (
+                  <button
+                    key={ut.id}
+                    onClick={() => handleSeek(ut.start_time)}
+                    className="px-2 py-1 rounded bg-[#090909] hover:bg-[#202020] border border-[#292929] hover:border-[#f59e0b] text-[11px] font-mono text-[#D1D5DB] hover:text-white transition-colors cursor-pointer"
+                  >
+                    <span>{formatTimestamp(ut.start_time)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ========================================================= */}
+        {/* RIGHT COLUMN: SCROLLABLE RECOVERED TRACKLIST DECK */}
+        {/* ========================================================= */}
+        <div className="flex-1 min-w-0 space-y-4 w-full">
+          {/* Real Processing Tracker (Visible during analysis) */}
+          {job.status !== 'completed' && (
+            <ProgressTracker job={job} />
+          )}
+
+          {/* Tracklist Controls Header & Filter Strip */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#E32636] shadow-[0_0_8px_#E32636]" />
+                  <h2 className="text-lg font-bold font-display text-white tracking-tight">
+                    Recovered Tracklist
+                  </h2>
+                  <span className="font-mono text-xs text-[#E32636] font-semibold">
+                    ({displayTracks.length} tracks)
+                  </span>
+                </div>
+                <p className="text-[11px] font-mono text-[#9CA3AF] mt-0.5">
+                  Click any timecode to sync playback • Direct Spotify & YouTube links on each track
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
                   setActiveEditingTrack(null)
                   setIsAddMode(true)
                 }}
-                onSeek={handleSeek}
-                currentTime={currentSeekTime}
-              />
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#202020] hover:bg-[#292929] border border-[#292929] hover:border-[#8D1422] text-[#F4F1ED] text-xs font-mono font-medium transition-colors cursor-pointer shadow-sm self-start sm:self-auto"
+              >
+                <Plus className="w-3.5 h-3.5 text-[#E32636]" />
+                <span>Add Custom Timestamp</span>
+              </button>
             </div>
-          )}
+
+            <SearchFilter tracks={job.tracks} onFilterChange={setFilteredTracks} />
+          </div>
+
+          {/* High-Precision Track Strips with ZERO Horizontal Scrolling & Direct Spotify/YouTube */}
+          <TrackTable
+            tracks={displayTracks}
+            videoId={job.video_id}
+            currentTime={currentSeekTime}
+            onEdit={track => {
+              setActiveEditingTrack(track)
+              setIsAddMode(false)
+            }}
+            onDelete={handleDeleteTrack}
+            onSeek={handleSeek}
+          />
         </div>
       </div>
 
-      {/* Manual Edit or Add Modal */}
-      {(activeEditingTrack || isAddMode) && (
-        <EditTrackModal
-          track={activeEditingTrack}
-          jobId={job.id}
-          onClose={() => {
-            setActiveEditingTrack(null)
-            setIsAddMode(false)
-          }}
-          onSave={handleSaveTrack}
-          onDelete={activeEditingTrack ? handleDeleteTrack : undefined}
-        />
-      )}
+      {/* Edit Track Modal */}
+      <EditTrackModal
+        track={activeEditingTrack}
+        jobId={job.id}
+        isOpen={Boolean(activeEditingTrack) || isAddMode}
+        isAddMode={isAddMode}
+        onClose={() => {
+          setActiveEditingTrack(null)
+          setIsAddMode(false)
+        }}
+        onSave={handleSaveTrack}
+      />
     </div>
   )
 }
