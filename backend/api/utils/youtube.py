@@ -41,19 +41,20 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
     else:
         url = f"https://www.youtube.com/watch?v={identifier}"
     ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
+    cookie_file = get_cookies_file_path()
     cmd = [
         "yt-dlp",
         "--dump-json",
         "--no-download",
         "--no-warnings",
         "--force-ipv4",
-        "--extractor-args", "youtube:player_client=android,web",
     ]
     if ffmpeg_dir:
         cmd += ["--ffmpeg-location", ffmpeg_dir]
-    cookie_file = get_cookies_file_path()
     if cookie_file:
         cmd += ["--cookies", cookie_file]
+    else:
+        cmd += ["--extractor-args", "youtube:player_client=android,web"]
     cmd.append(url)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)

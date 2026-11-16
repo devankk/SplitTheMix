@@ -249,24 +249,26 @@ class AudioProcessor:
     async def _download_audio(self, url: str, tmp_dir: str) -> str:
         ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
         output_path = os.path.join(tmp_dir, "audio.%(ext)s")
+        cookie_file = get_cookies_file_path()
+
         cmd = [
             "yt-dlp",
+            "-f", "ba/b/best",
             "-x",
             "--audio-format", "mp3",
             "--audio-quality", "5",
             "--no-playlist",
             "--no-warnings",
             "--force-ipv4",
-            "--extractor-args", "youtube:player_client=android,web",
             "-o", output_path,
             url,
         ]
         if ffmpeg_dir:
             cmd = cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + cmd[1:]
-
-        cookie_file = get_cookies_file_path()
         if cookie_file:
             cmd.extend(["--cookies", cookie_file])
+        else:
+            cmd.extend(["--extractor-args", "youtube:player_client=android,web"])
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -275,16 +277,16 @@ class AudioProcessor:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            # Fallback with iOS player client for cloud datacenter IPs
+            # Fallback attempt with explicit format 18/best
             fallback_cmd = [
                 "yt-dlp",
+                "-f", "bestaudio/best/18",
                 "-x",
                 "--audio-format", "mp3",
                 "--audio-quality", "5",
                 "--no-playlist",
                 "--no-warnings",
                 "--force-ipv4",
-                "--extractor-args", "youtube:player_client=ios,mweb",
                 "-o", output_path,
                 url,
             ]
@@ -299,7 +301,7 @@ class AudioProcessor:
             )
             stdout2, stderr2 = await proc2.communicate()
             if proc2.returncode != 0:
-                err_msg = stderr.decode()[:500] if stderr else "Unknown error"
+                err_msg = stderr2.decode()[:500] if stderr2 else (stderr.decode()[:500] if stderr else "Unknown error")
                 raise RuntimeError(f"yt-dlp failed: {err_msg}")
 
         for f in os.listdir(tmp_dir):
