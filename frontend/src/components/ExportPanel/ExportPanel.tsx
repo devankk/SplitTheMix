@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Download, Copy, Check, FileSpreadsheet, FileText, Code2 } from 'lucide-react'
+import { Download, Copy, Check, FileSpreadsheet, FileText, Code2, Music } from 'lucide-react'
 import type { Track, AnalysisJob } from '../../types'
 import { formatTimestamp } from '../../utils/format'
 
@@ -116,7 +116,7 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ tracks, job }) => {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs font-mono">
         {/* Copy Plain Text */}
         <button
           onClick={handleCopyText}
@@ -152,6 +152,17 @@ export const ExportPanel: React.FC<ExportPanelProps> = ({ tracks, job }) => {
           <Code2 className="w-3.5 h-3.5 text-[#E32636]" />
           <span>Save .JSON</span>
         </button>
+
+        {/* Download Full Converted MP3 */}
+        <a
+          href={`${(import.meta as any).env?.VITE_API_BASE_URL || '/api'}/media/${job.id}?download=true`}
+          download
+          className="p-2 rounded bg-[#090909] hover:bg-[#1a1012] border border-[#E32636]/50 hover:border-[#E32636] text-[#F4F1ED] transition-colors flex items-center justify-center gap-2 cursor-pointer col-span-2 sm:col-span-1 shadow-[0_0_10px_rgba(227,38,54,0.1)]"
+          title="Download the converted MP3 file directly to your device"
+        >
+          <Music className="w-3.5 h-3.5 text-[#E32636]" />
+          <span className="font-semibold text-[#E32636]">Save .MP3</span>
+        </a>
       </div>
     </div>
   )

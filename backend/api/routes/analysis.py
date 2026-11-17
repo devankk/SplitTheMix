@@ -180,19 +180,31 @@ async def analyze_uploaded_file(file: UploadFile = File(...), db: Session = Depe
     return _format_job_response(job)
 
 @router.get("/media/{job_id}")
-def stream_media_file(job_id: str, db: Session = Depends(get_db)):
+def stream_media_file(job_id: str, download: bool = False, db: Session = Depends(get_db)):
     job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
-    if not job or not job.url:
+    if not job:
         raise HTTPException(status_code=404, detail="Media not found")
-    if not job.url.startswith("file://"):
-        raise HTTPException(status_code=400, detail="Not a local media file")
-    file_path = job.url.replace("file://", "")
-    if not os.path.exists(file_path):
+
+    file_path = None
+    if job.url and job.url.startswith("file://"):
+        file_path = job.url.replace("file://", "")
+    else:
+        # Check persistent storage for converted YouTube MP3
+        uploads_dir = os.path.join(os.getcwd(), "splitthemix_uploads")
+        candidate = os.path.join(uploads_dir, f"{job_id}.mp3")
+        if os.path.exists(candidate):
+            file_path = candidate
+
+    if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Media file not found on disk")
 
     ext = os.path.splitext(file_path)[1].lower()
     media_type = "audio/mpeg" if ext == ".mp3" else ("video/mp4" if ext == ".mp4" else "audio/wav")
-    return FileResponse(file_path, media_type=media_type)
+
+    raw_title = job.video_title or f"mix_{job_id[:8]}"
+    clean_title = re.sub(r'[^\w\s\-\.]', '', raw_title).strip() or f"mix_{job_id[:8]}"
+    headers = {"Content-Disposition": f'attachment; filename="{clean_title}{ext}"'} if download else None
+    return FileResponse(file_path, media_type=media_type, headers=headers)
 
 @router.get("/analysis/{job_id}", response_model=AnalysisJobResponse)
 def get_analysis_status(job_id: str, db: Session = Depends(get_db)):

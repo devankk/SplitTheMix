@@ -224,6 +224,16 @@ class AudioProcessor:
                 # 2. Download audio with multi-connection + mobile client + Cobalt fallback
                 audio_path = await self._download_audio(url, tmp_dir, job_id=job_id, db=db)
 
+                # Persist converted MP3 to permanent storage for in-browser playback and user download
+                uploads_dir = os.path.join(os.getcwd(), "splitthemix_uploads")
+                os.makedirs(uploads_dir, exist_ok=True)
+                persistent_path = os.path.join(uploads_dir, f"{job_id}.mp3")
+                try:
+                    shutil.copyfile(audio_path, persistent_path)
+                    logger.info(f"Persisted converted MP3 for job {job_id} to {persistent_path}")
+                except Exception as e:
+                    logger.warning(f"Could not persist converted MP3 for job {job_id}: {e}")
+
                 # 3. Status → processing
                 _update_job(
                     db, job_id,
