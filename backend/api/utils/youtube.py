@@ -71,8 +71,9 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
     if None not in proxy_candidates:
         proxy_candidates.append(None)
 
+    has_node = bool(shutil.which("node"))
     client_passes = [
-        ["--extractor-args", "youtube:player_client=tv,visionos,android,web,mweb"],
+        ["--extractor-args", "youtube:player_client=visionos,android"],
         []
     ]
 
@@ -85,9 +86,10 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
                 "--no-download",
                 "--no-warnings",
                 "--force-ipv4",
-                "--js-runtimes", "node",
                 "--remote-components", "ejs:github",
             ]
+            if has_node:
+                cmd.extend(["--js-runtimes", "node"])
             if ffmpeg_dir:
                 cmd += ["--ffmpeg-location", ffmpeg_dir]
             if proxy:

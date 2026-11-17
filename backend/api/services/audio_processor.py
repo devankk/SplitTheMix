@@ -26,6 +26,13 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+class VerificationRequiredException(Exception):
+    """Raised when YouTube requires interactive verification on a cloud/datacenter IP."""
+    def __init__(self, message: str, verification_url: str):
+        super().__init__(message)
+        self.verification_url = verification_url
+
+
 async def enrich_track_metadata(title: str, artist: str, existing_meta: dict) -> dict:
     meta = dict(existing_meta)
 
@@ -402,6 +409,9 @@ class AudioProcessor:
             )
             db.commit()
 
+        except VerificationRequiredException as e:
+            logger.info(f"Job {job_id} paused for user verification: {e}")
+            return
         except Exception as e:
             logger.error(f"process_mix failed for job {job_id}: {e}")
             _update_job(
@@ -425,16 +435,17 @@ class AudioProcessor:
         if None not in proxy_candidates:
             proxy_candidates.append(None)
         has_aria2 = bool(shutil.which("aria2c"))
+        has_node = bool(shutil.which("node"))
 
         if db and job_id:
             _update_job(db, job_id, stage_message="Accelerating audio download (multi-stream)...", progress=3)
 
         last_error = "Unknown error"
-        # Tier 1: Multi-connection yt-dlp with client chain (Smart TV, VisionOS, Android, Web, MWeb)
-        # Pass 1: Smart TV & VisionOS priority (bypasses SABR-only streaming and PO-Token gates)
+        # Tier 1: Multi-connection yt-dlp with client chain (VisionOS & Android priority)
+        # Pass 1: VisionOS & Android priority (bypasses SABR-only streaming and PO-Token gates)
         # Pass 2: Unconstrained auto-negotiation (fallback if YouTube alters client availability)
         client_passes = [
-            ["--extractor-args", "youtube:player_client=tv,visionos,android,web,mweb"],
+            ["--extractor-args", "youtube:player_client=visionos,android"],
             []
         ]
 
@@ -448,11 +459,12 @@ class AudioProcessor:
                     "--no-playlist",
                     "--no-warnings",
                     "--force-ipv4",
-                    "--js-runtimes", "node",
                     "--remote-components", "ejs:github",
                     "-o", output_template,
                     url,
                 ]
+                if has_node:
+                    cmd.extend(["--js-runtimes", "node"])
                 if has_aria2:
                     cmd.extend(["--downloader", "aria2c", "--downloader-args", "aria2c:-s 16 -x 16 -k 1M"])
                 else:
@@ -514,6 +526,8 @@ class AudioProcessor:
                 verification_url=url,
                 verification_type="youtube_bot_challenge"
             )
+            db.commit()
+            raise VerificationRequiredException("YouTube verification required", verification_url=url)
 
         raise RuntimeError(f"Audio download failed: {last_error}")
 
