@@ -141,10 +141,21 @@ SplitTheMix ingests audio through two distinct, hardened pipelines:
 └──────────────────────────────────────┴──────────────────────────────────────┘
 ```
 
-### 4.1 YouTube Anti-Block Invariants
-1. **oEmbed Resolution:** Always use YouTube oEmbed (`https://www.youtube.com/oembed?url=...&format=json`) for instant title and thumbnail resolution. Avoid synchronous `yt-dlp --dump-json` which exceeds HTTP timeouts.
-2. **Format 249 Opus:** Download low-bitrate audio (`format 249` = Opus ~50 kbps, or fallback `250/251/140`). Slashes download times by 80% and bandwidth by 90%.
-3. **Dedicated Proxy Pool:** Pass Webshare proxies via `YTDLP_PROXY`. Never set global `HTTP_PROXY`/`HTTPS_PROXY` in environment variables, as this breaks cloud internal healthchecks and package managers.
+### 4.1 3-Tier Zero-Block YouTube Audio Ingestion Architecture
+To completely eliminate YouTube datacenter bot blocks ("Sign in to confirm you're not a bot", SABR-streaming lockouts, and PO-Token challenges), SplitTheMix employs a hardened 3-tier ingestion engine:
+
+1. **Tier 1: Multi-Connection VisionOS & Mobile Client Emulation (`visionos,android`)**
+   - Routes requests using `--extractor-args "youtube:player_client=visionos,android"`.
+   - **The VisionOS Advantage:** Apple Vision (`visionos`) is completely exempt from YouTube's experimental SABR streaming and GVS PO-Token gates. Unlike Smart TV (`tv`), VisionOS does not trigger "The page needs to be reloaded".
+   - Downloads with 8 concurrent fragments (`--concurrent-fragments 8`) or `aria2c` multi-connection streams (`-s 16 -x 16`), completing a 1-hour mix in under 68–72 seconds ($>1.5\text{ MB/s}$).
+   - **Proxy Decoupling:** Always forces `--proxy ""` for direct connections when no explicit `YTDLP_PROXY` is configured, preventing dead or expired system proxies (`HTTP_PROXY`) from throwing `402 Payment Required`.
+2. **Tier 2: Silent Cobalt REST API Fallback (`CobaltDownloader`)**
+   - If direct yt-dlp is ever blocked or throttled, the backend automatically and silently queries open-source Cobalt REST API instances to acquire direct audio streams without ads or bot gates.
+3. **Tier 3: In-Browser Verification Modal & Cloud Pass-Through**
+   - When a cloud server IP (e.g. Render) is blocked by YouTube's firewall, `_download_audio` detects the block and raises `VerificationRequiredException`.
+   - The job is set to `status: "verification_required"` with the challenge URL.
+   - The Vercel frontend automatically opens `<VerificationModal />`, allowing the user to solve the challenge in their browser on their residential IP.
+   - Upon clicking "Resume Analysis", the frontend calls `POST /api/analysis/{id}/verify`, resuming processing immediately.
 
 ### 4.2 Local Media Playback & Monitoring
 * Uploaded files are preserved in `splitthemix_uploads/{job_id}_{clean_filename}`.
@@ -423,12 +434,63 @@ This section preserves hard-won production lessons, failed attempts, and debuggi
 
 ---
 
-### 13.5 Key Architectural Lessons & Invariants
+### 13.5 Issue 5: Audible Handover Drop Snapping & Pre-Cue Bleed Elimination
+* **Symptom:** When a DJ faintly introduces Track 2 on Deck B (e.g. cueing up low-volume percussion 30s before the mix-in), Shazam detected Track 2 early at 192s, prematurely ending Track 1 before Deck A had even faded out.
+* **Root Cause:**
+  * Raw match offset calculations placed `start_time` at the very first faint audio trace, ignoring the real DJ mixer crossfade.
+* **Successful Solution:**
+  1. Implemented `find_audible_drop(audio_path, win_start, win_end)`.
+  2. Scans the transition window in 50ms frames via a zero-RAM streaming FFmpeg pipe (<5MB RAM).
+  3. Uses RMS energy rise and spectral flux to snap the transition timestamp to the **exact audible drop / takeover point** where Deck B drops in and Deck A mutes.
+
+---
+
+### 13.6 Issue 6: The YouTube Proxy Bandwidth Trap (`402 Payment Required`)
+* **Symptom:** YouTube downloads crashed abruptly with: `ERROR: Unable to download API page: ('Unable to connect to proxy', OSError('Tunnel connection failed: 402 Payment Required'))`.
+* **Root Cause:**
+  * yt-dlp was routing through commercial proxies configured in the environment (`HTTP_PROXY`, `HTTPS_PROXY`).
+  * Free/trial proxy providers (e.g. Webshare) cap monthly traffic at 1 GB. A single 2-hour set is ~100–150 MB; after a few downloads, the proxy quota was completely exhausted and returned HTTP 402.
+* **Successful Solution:**
+  1. Decoupled yt-dlp from generic `HTTP_PROXY`/`HTTPS_PROXY` environment variables.
+  2. Enforced `--proxy ""` for direct connections whenever no explicit `YTDLP_PROXY` is defined.
+  3. Engineered the **3-Tier Zero-Block Downloader**: Tier 1 (mobile/VisionOS client spoofing) + Tier 2 (Cobalt API fallback) + Tier 3 (In-browser verification modal).
+
+---
+
+### 13.7 Issue 7: Viral Video SABR-Streaming & PO-Token Blocks (Boiler Room `c0-hvjV2A5Y`)
+* **Symptom:** Downloading viral DJ sets with tens of millions of views (e.g. *Fred again.. Boiler Room London*) failed with: `ERROR: [youtube] c0-hvjV2A5Y: Failed to extract any player response`.
+* **Root Cause:**
+  * YouTube deploys experimental SABR-only streaming on `android`/`ios` clients and demands mandatory GVS PO-Tokens on `mweb` for high-traffic music videos.
+  * Locking yt-dlp strictly to `player_client=android,ios,mweb` left yt-dlp with zero usable formats.
+* **Failed Approaches:**
+  * *Using Smart TV (`tv`) alone:* Returned `ERROR: The page needs to be reloaded`.
+* **Successful Solution:**
+  1. Benchmarked all 9 YouTube client profiles: discovered that **`visionos` (Apple Vision) has 0 errors, 0 warnings, full audio format access, and is completely exempt from SABR and PO-tokens**.
+  2. Configured primary client chain: `youtube:player_client=visionos,android` with adaptive unconstrained auto-negotiation as Pass 2.
+  3. Downloaded the full 71-minute Boiler Room mix (71.67 MB MP3) in **68.10 seconds** with zero blocks.
+  4. Added `pip install -U yt-dlp` to `render.yaml` build command for continuous daily extractor updates.
+
+---
+
+### 13.8 Issue 8: The Verification State Overwrite Race Condition
+* **Symptom:** In live production on Render/Vercel, when YouTube challenged a datacenter IP, the job showed `"failed"` instead of prompting the user with the Verification Modal.
+* **Root Cause:**
+  * `_download_audio` updated the job to `status="verification_required"`, but then immediately raised a generic `RuntimeError`.
+  * The outer `process_mix` `except Exception` block caught the `RuntimeError` and instantly overwrote `status="failed"`, obliterating the verification state in under 1 millisecond.
+* **Successful Solution:**
+  1. Created `class VerificationRequiredException(Exception)`.
+  2. `process_mix` explicitly catches `VerificationRequiredException`, logs the pause, and returns cleanly without modifying `status`.
+  3. The job remains in `status: "verification_required"`, allowing the Vercel frontend `<VerificationModal />` to open seamlessly.
+
+---
+
+### 13.9 Key Architectural Lessons & Invariants
 1. **Inspect Existing Code First:** Always check database models, API routes, and actual network payloads before proposing structural rewrites.
 2. **Never Scrap Web Pages When Direct APIs Exist:** iTunes Search API and Shazam CDN return structured JSON in milliseconds without bot blocks.
-3. **Guardrails for Free Proxies:** Free proxy tiers cannot handle 16 parallel connections; keep direct connections primary with verified modern headers, using proxies as fallback.
-4. **Scope Boundaries:** Keep Instant Cache exclusive to public links (**YouTube and SoundCloud only**); never cache local user uploads across files.
-5. **Strict Safety Rule:** Never push to GitHub without explicit user command (`"push"`).
+3. **Guardrails for Free Proxies:** Never route bulk audio downloads through free proxy tiers; free quotas will trigger `402 Payment Required`. Use direct connections with VisionOS/iOS emulation.
+4. **Preserve Job States:** Never let an unhandled exception block in worker loops overwrite deliberate paused states like `verification_required`.
+5. **Scope Boundaries:** Keep Instant Cache exclusive to public links (**YouTube and SoundCloud only**); never cache local user uploads across files.
+6. **Strict Safety Rule:** Never push to GitHub without explicit user command (`"push"`).
 
 ---
 *This skill is authoritative for SplitTheMix. Always consult these specifications before modifying audio or UI logic.*
