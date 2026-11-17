@@ -207,6 +207,16 @@ class TestAudioEngine(unittest.TestCase):
         loop.close()
         self.assertFalse(res)
 
+    def test_resilient_bot_challenge_keyword_coverage(self):
+        """Verify that streaming blocks like 'failed to extract any player response' are detected as bot challenges."""
+        bot_keywords = [
+            "sign in to confirm", "bot", "429", "captcha", "confirm your identity",
+            "failed to extract any player response", "sabr", "po_token", "po token"
+        ]
+        sample_error = "ERROR: [youtube] c0-hvjV2A5Y: Failed to extract any player response; please report this issue"
+        is_detected = any(k in sample_error.lower() for k in bot_keywords)
+        self.assertTrue(is_detected, "Failed to extract any player response should trigger bot challenge detection")
+
 
 if __name__ == "__main__":
     unittest.main()

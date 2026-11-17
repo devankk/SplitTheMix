@@ -71,45 +71,51 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
     if None not in proxy_candidates:
         proxy_candidates.append(None)
 
-    for proxy in proxy_candidates:
-        cmd = [
-            "yt-dlp",
-            "--extractor-args", "youtube:player_client=android,ios,mweb",
-            "--dump-json",
-            "--no-download",
-            "--no-warnings",
-            "--force-ipv4",
-            "--js-runtimes", "node",
-            "--remote-components", "ejs:github",
-        ]
-        if ffmpeg_dir:
-            cmd += ["--ffmpeg-location", ffmpeg_dir]
-        if proxy:
-            cmd += ["--proxy", proxy]
-        else:
-            cmd += ["--proxy", ""]
-        if cookie_file:
-            cmd += ["--cookies", cookie_file]
-        cmd.append(url)
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            if result.returncode == 0:
-                data = json.loads(result.stdout)
-                thumbnails = data.get("thumbnails", [])
-                thumbnail_url = None
-                if thumbnails:
-                    for t in reversed(thumbnails):
-                        if t.get("url"):
-                            thumbnail_url = t["url"]
-                            break
-                return {
-                    "video_title": data.get("title") or meta.get("video_title"),
-                    "channel_name": data.get("uploader") or data.get("channel") or meta.get("channel_name"),
-                    "thumbnail_url": thumbnail_url or data.get("thumbnail") or meta.get("thumbnail_url"),
-                    "video_duration": data.get("duration") or meta.get("video_duration"),
-                }
-        except Exception:
-            continue
+    client_passes = [
+        ["--extractor-args", "youtube:player_client=tv,visionos,android,web,mweb"],
+        []
+    ]
+
+    for client_args in client_passes:
+        for proxy in proxy_candidates:
+            cmd = [
+                "yt-dlp",
+                *client_args,
+                "--dump-json",
+                "--no-download",
+                "--no-warnings",
+                "--force-ipv4",
+                "--js-runtimes", "node",
+                "--remote-components", "ejs:github",
+            ]
+            if ffmpeg_dir:
+                cmd += ["--ffmpeg-location", ffmpeg_dir]
+            if proxy:
+                cmd += ["--proxy", proxy]
+            else:
+                cmd += ["--proxy", ""]
+            if cookie_file:
+                cmd += ["--cookies", cookie_file]
+            cmd.append(url)
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                if result.returncode == 0:
+                    data = json.loads(result.stdout)
+                    thumbnails = data.get("thumbnails", [])
+                    thumbnail_url = None
+                    if thumbnails:
+                        for t in reversed(thumbnails):
+                            if t.get("url"):
+                                thumbnail_url = t["url"]
+                                break
+                    return {
+                        "video_title": data.get("title") or meta.get("video_title"),
+                        "channel_name": data.get("uploader") or data.get("channel") or meta.get("channel_name"),
+                        "thumbnail_url": thumbnail_url or data.get("thumbnail") or meta.get("thumbnail_url"),
+                        "video_duration": data.get("duration") or meta.get("video_duration"),
+                    }
+            except Exception:
+                continue
 
     if meta.get("video_title"):
         return meta

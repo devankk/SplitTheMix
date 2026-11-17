@@ -430,53 +430,61 @@ class AudioProcessor:
             _update_job(db, job_id, stage_message="Accelerating audio download (multi-stream)...", progress=3)
 
         last_error = "Unknown error"
-        # Tier 1: Multi-connection yt-dlp with mobile client emulation (bypasses desktop bot checks)
-        for proxy in proxy_candidates:
-            cmd = [
-                "yt-dlp",
-                "--extractor-args", "youtube:player_client=android,ios,mweb",
-                "-f", "ba/b/bestaudio/best",
-                "-x", "--audio-format", "mp3",
-                "--no-playlist",
-                "--no-warnings",
-                "--force-ipv4",
-                "--js-runtimes", "node",
-                "--remote-components", "ejs:github",
-                "-o", output_template,
-                url,
-            ]
-            if has_aria2:
-                cmd.extend(["--downloader", "aria2c", "--downloader-args", "aria2c:-s 16 -x 16 -k 1M"])
-            else:
-                cmd.extend(["--concurrent-fragments", "8"])
+        # Tier 1: Multi-connection yt-dlp with client chain (Smart TV, VisionOS, Android, Web, MWeb)
+        # Pass 1: Smart TV & VisionOS priority (bypasses SABR-only streaming and PO-Token gates)
+        # Pass 2: Unconstrained auto-negotiation (fallback if YouTube alters client availability)
+        client_passes = [
+            ["--extractor-args", "youtube:player_client=tv,visionos,android,web,mweb"],
+            []
+        ]
 
-            if ffmpeg_dir:
-                cmd = cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + cmd[1:]
-            if proxy:
-                cmd.extend(["--proxy", proxy])
-            else:
-                cmd.extend(["--proxy", ""])
-            if cookie_file:
-                cmd.extend(["--cookies", cookie_file])
+        for client_args in client_passes:
+            for proxy in proxy_candidates:
+                cmd = [
+                    "yt-dlp",
+                    *client_args,
+                    "-f", "ba/b/bestaudio/best",
+                    "-x", "--audio-format", "mp3",
+                    "--no-playlist",
+                    "--no-warnings",
+                    "--force-ipv4",
+                    "--js-runtimes", "node",
+                    "--remote-components", "ejs:github",
+                    "-o", output_template,
+                    url,
+                ]
+                if has_aria2:
+                    cmd.extend(["--downloader", "aria2c", "--downloader-args", "aria2c:-s 16 -x 16 -k 1M"])
+                else:
+                    cmd.extend(["--concurrent-fragments", "8"])
 
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, stderr = await proc.communicate()
-                if proc.returncode == 0:
-                    for f in os.listdir(tmp_dir):
-                        if f.startswith("audio.") and not f.endswith(".part"):
-                            return os.path.join(tmp_dir, f)
+                if ffmpeg_dir:
+                    cmd = cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + cmd[1:]
+                if proxy:
+                    cmd.extend(["--proxy", proxy])
+                else:
+                    cmd.extend(["--proxy", ""])
+                if cookie_file:
+                    cmd.extend(["--cookies", cookie_file])
 
-                err_msg = stderr.decode()[:500] if stderr else "Download exited with non-zero status"
-                last_error = err_msg
-                logger.warning(f"Accelerated yt-dlp attempt failed with proxy '{proxy}': {err_msg}")
-            except Exception as e:
-                last_error = str(e)
-                logger.warning(f"yt-dlp execution error: {e}")
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    stdout, stderr = await proc.communicate()
+                    if proc.returncode == 0:
+                        for f in os.listdir(tmp_dir):
+                            if f.startswith("audio.") and not f.endswith(".part"):
+                                return os.path.join(tmp_dir, f)
+
+                    err_msg = stderr.decode()[:500] if stderr else "Download exited with non-zero status"
+                    last_error = err_msg
+                    logger.warning(f"Accelerated yt-dlp attempt failed with proxy '{proxy}' and client '{client_args}': {err_msg}")
+                except Exception as e:
+                    last_error = str(e)
+                    logger.warning(f"yt-dlp execution error: {e}")
 
         # Tier 2: Automated Silent Cobalt Fallback (bypasses datacenter blocks)
         logger.info("Direct download throttled or blocked. Engaging Cobalt mirror fallback...")
@@ -493,8 +501,11 @@ class AudioProcessor:
         except Exception as e:
             logger.warning(f"Cobalt fallback error: {e}")
 
-        # Tier 3: If YouTube returned a bot challenge and cannot be resolved automatically:
-        is_bot_challenge = any(keyword in last_error.lower() for keyword in ["sign in to confirm", "bot", "429", "captcha", "confirm your identity"])
+        # Tier 3: If YouTube returned a bot challenge / streaming gate and cannot be resolved automatically:
+        is_bot_challenge = any(keyword in last_error.lower() for keyword in [
+            "sign in to confirm", "bot", "429", "captcha", "confirm your identity",
+            "failed to extract any player response", "sabr", "po_token", "po token"
+        ])
         if is_bot_challenge and db and job_id:
             _update_job(
                 db, job_id,
