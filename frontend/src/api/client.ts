@@ -54,4 +54,9 @@ export const deleteTrack = async (trackId: string): Promise<void> => {
   await api.delete(`/tracks/${trackId}`)
 }
 
+export const verifyJob = async (jobId: string): Promise<AnalysisJob> => {
+  const res = await api.post<AnalysisJob>(`/analysis/${jobId}/verify`)
+  return res.data
+}
+
 export default api

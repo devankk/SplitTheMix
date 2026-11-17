@@ -195,6 +195,18 @@ class TestAudioEngine(unittest.TestCase):
         self.assertGreaterEqual(song2["start_time"], 216.0)
         self.assertLessEqual(song2["start_time"], 224.0)
 
+    def test_cobalt_downloader_init(self):
+        """Verify CobaltDownloader initializes with configured mirrors and handles invalid URLs gracefully."""
+        from api.services.cobalt_downloader import CobaltDownloader
+        downloader = CobaltDownloader(custom_api_url="https://custom.cobalt.tools")
+        self.assertIn("https://custom.cobalt.tools", downloader.api_urls)
+
+        # Test download on non-existent file returns False gracefully
+        loop = asyncio.new_event_loop()
+        res = loop.run_until_complete(downloader.download_audio("https://invalid-url-example.com", "temp_out.mp3"))
+        loop.close()
+        self.assertFalse(res)
+
 
 if __name__ == "__main__":
     unittest.main()

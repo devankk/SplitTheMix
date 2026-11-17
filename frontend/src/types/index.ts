@@ -25,7 +25,7 @@ export interface Track {
   edited_by_user: boolean
 }
 
-export type JobStatus = 'queued' | 'downloading' | 'processing' | 'completed' | 'failed'
+export type JobStatus = 'queued' | 'downloading' | 'processing' | 'completed' | 'failed' | 'verification_required'
 
 export interface AnalysisJob {
   id: string
@@ -43,6 +43,8 @@ export interface AnalysisJob {
   created_at: string
   completed_at: string | null
   error_message: string | null
+  verification_url?: string | null
+  verification_type?: string | null
   tracks: Track[]
 }
 

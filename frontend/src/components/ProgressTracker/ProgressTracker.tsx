@@ -30,12 +30,17 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({ job }) => {
 
   const isComplete = job.status === 'completed'
   const isFailed = job.status === 'failed'
+  const isVerification = job.status === 'verification_required'
 
   return (
     <div className="p-4 sm:p-5 rounded-lg bg-[#141414] border border-[#292929] relative overflow-hidden shadow-console-sm">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          {!isComplete && !isFailed ? (
+          {isVerification ? (
+            <div className="w-8 h-8 rounded bg-[#202020] border border-amber-500/40 flex items-center justify-center text-amber-500">
+              <AlertTriangle className="w-4 h-4 animate-pulse" />
+            </div>
+          ) : !isComplete && !isFailed ? (
             <div className="w-8 h-8 rounded bg-[#202020] border border-[#292929] flex items-center justify-center text-[#E32636]">
               <Disc3 className="w-4 h-4 animate-spin" />
             </div>
@@ -57,6 +62,8 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({ job }) => {
                 ? 'Acoustic Signature Analysis'
                 : job.status === 'queued'
                 ? 'Rack Queue Standby'
+                : job.status === 'verification_required'
+                ? 'Human Verification Standby'
                 : job.status === 'completed'
                 ? 'Analysis Complete'
                 : 'Processing Error'}
@@ -67,7 +74,7 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({ job }) => {
 
         <div className="text-right font-mono">
           <span className="text-lg font-bold text-[#F4F1ED]">{job.progress}%</span>
-          {!isComplete && !isFailed && (
+          {!isComplete && !isFailed && !isVerification && (
             <div className="flex items-center gap-1 text-[10px] text-[#5c5c5c] mt-0.5">
               <Clock className="w-3 h-3 text-[#E32636]" />
               <span>Elapsed: {formatTimer(elapsed)}</span>

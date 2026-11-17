@@ -21,7 +21,7 @@ class TrackResponse(BaseModel):
     duration: Optional[float] = None
     confidence: int
     album_art: Optional[str] = None
-    bpm: Optional[int] = None
+    bpm: Optional[int | str] = None
     musical_key: Optional[str] = None
     release_year: Optional[str] = None
     label: Optional[str] = None
@@ -46,6 +46,8 @@ class AnalysisJobResponse(BaseModel):
     created_at: str
     completed_at: Optional[str] = None
     error_message: Optional[str] = None
+    verification_url: Optional[str] = None
+    verification_type: Optional[str] = None
     tracks: List[TrackResponse] = []
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,7 +61,7 @@ class TrackUpdate(BaseModel):
     artist: Optional[str] = None
     start_time: Optional[float] = None
     album_art: Optional[str] = None
-    bpm: Optional[int] = None
+    bpm: Optional[int | str] = None
     musical_key: Optional[str] = None
     release_year: Optional[str] = None
     label: Optional[str] = None
@@ -71,7 +73,7 @@ class TrackCreate(BaseModel):
     artist: str
     start_time: float
     album_art: Optional[str] = None
-    bpm: Optional[int] = None
+    bpm: Optional[int | str] = None
     musical_key: Optional[str] = None
     release_year: Optional[str] = None
     label: Optional[str] = None

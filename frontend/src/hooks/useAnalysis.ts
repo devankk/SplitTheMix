@@ -46,3 +46,13 @@ export function useDeleteTrack() {
     },
   })
 }
+
+export function useVerifyJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (jobId: string) => api.verifyJob(jobId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['analysis'] })
+    },
+  })
+}

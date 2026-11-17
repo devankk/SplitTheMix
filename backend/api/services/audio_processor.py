@@ -17,6 +17,7 @@ from api.services.recognition.shazam import ShazamRecognizer
 from api.services.artwork_fetcher import fetch_cover_art
 from api.services.canonical_resolver import resolve_original_track
 from api.services.audio_features import resolve_bpm_and_key, lookup_canonical_features
+from api.services.cobalt_downloader import CobaltDownloader
 from api.utils.helpers import get_cookies_file_path
 import hashlib
 import httpx
@@ -209,12 +210,12 @@ class AudioProcessor:
                 _update_job(
                     db, job_id,
                     status="downloading",
-                    stage_message="Downloading audio from YouTube…",
+                    stage_message="Accelerating audio download from YouTube…",
                     progress=0,
                 )
 
-                # 2. Download audio
-                audio_path = await self._download_audio(url, tmp_dir)
+                # 2. Download audio with multi-connection + mobile client + Cobalt fallback
+                audio_path = await self._download_audio(url, tmp_dir, job_id=job_id, db=db)
 
                 # 3. Status → processing
                 _update_job(
@@ -414,50 +415,96 @@ class AudioProcessor:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    async def _download_audio(self, url: str, tmp_dir: str) -> str:
+    async def _download_audio(self, url: str, tmp_dir: str, job_id: str = None, db = None) -> str:
         ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
-        output_path = os.path.join(tmp_dir, "audio.%(ext)s")
+        output_template = os.path.join(tmp_dir, "audio.%(ext)s")
         cookie_file = get_cookies_file_path()
-        raw_proxy = os.environ.get("YTDLP_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or ""
-        proxy_candidates = [p.strip() for p in raw_proxy.split(",") if p.strip()] or [None]
+        # Only use proxy if explicitly configured in YTDLP_PROXY; always ensure direct connection is included
+        raw_proxy = os.environ.get("YTDLP_PROXY") or ""
+        proxy_candidates = [p.strip() for p in raw_proxy.split(",") if p.strip()]
+        if None not in proxy_candidates:
+            proxy_candidates.append(None)
+        has_aria2 = bool(shutil.which("aria2c"))
+
+        if db and job_id:
+            _update_job(db, job_id, stage_message="Accelerating audio download (multi-stream)...", progress=3)
 
         last_error = "Unknown error"
+        # Tier 1: Multi-connection yt-dlp with mobile client emulation (bypasses desktop bot checks)
         for proxy in proxy_candidates:
             cmd = [
                 "yt-dlp",
-                "-f", "ba[abr<=64]/ba[abr<=80]/ba/b/best",
+                "--extractor-args", "youtube:player_client=android,ios,mweb",
+                "-f", "ba/b/bestaudio/best",
+                "-x", "--audio-format", "mp3",
                 "--no-playlist",
                 "--no-warnings",
                 "--force-ipv4",
                 "--js-runtimes", "node",
                 "--remote-components", "ejs:github",
-                "-o", output_path,
+                "-o", output_template,
                 url,
             ]
+            if has_aria2:
+                cmd.extend(["--downloader", "aria2c", "--downloader-args", "aria2c:-s 16 -x 16 -k 1M"])
+            else:
+                cmd.extend(["--concurrent-fragments", "8"])
+
             if ffmpeg_dir:
                 cmd = cmd[:1] + ["--ffmpeg-location", ffmpeg_dir] + cmd[1:]
             if proxy:
                 cmd.extend(["--proxy", proxy])
+            else:
+                cmd.extend(["--proxy", ""])
             if cookie_file:
                 cmd.extend(["--cookies", cookie_file])
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    for f in os.listdir(tmp_dir):
+                        if f.startswith("audio.") and not f.endswith(".part"):
+                            return os.path.join(tmp_dir, f)
+
+                err_msg = stderr.decode()[:500] if stderr else "Download exited with non-zero status"
+                last_error = err_msg
+                logger.warning(f"Accelerated yt-dlp attempt failed with proxy '{proxy}': {err_msg}")
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"yt-dlp execution error: {e}")
+
+        # Tier 2: Automated Silent Cobalt Fallback (bypasses datacenter blocks)
+        logger.info("Direct download throttled or blocked. Engaging Cobalt mirror fallback...")
+        if db and job_id:
+            _update_job(db, job_id, stage_message="Bypassing throttling via high-speed mirror...", progress=5)
+
+        cobalt_target = os.path.join(tmp_dir, "audio.mp3")
+        cobalt_downloader = CobaltDownloader()
+        try:
+            success = await cobalt_downloader.download_audio(url, cobalt_target)
+            if success and os.path.exists(cobalt_target) and os.path.getsize(cobalt_target) > 10000:
+                logger.info(f"Cobalt fallback succeeded: {cobalt_target}")
+                return cobalt_target
+        except Exception as e:
+            logger.warning(f"Cobalt fallback error: {e}")
+
+        # Tier 3: If YouTube returned a bot challenge and cannot be resolved automatically:
+        is_bot_challenge = any(keyword in last_error.lower() for keyword in ["sign in to confirm", "bot", "429", "captcha", "confirm your identity"])
+        if is_bot_challenge and db and job_id:
+            _update_job(
+                db, job_id,
+                status="verification_required",
+                stage_message="YouTube Verification Required: Cloud server blocked. Please complete verification in browser.",
+                verification_url=url,
+                verification_type="youtube_bot_challenge"
             )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                for f in os.listdir(tmp_dir):
-                    if f.startswith("audio.") and not f.endswith(".part"):
-                        return os.path.join(tmp_dir, f)
 
-            # Record error and try next proxy candidate if available
-            err_msg = stderr.decode()[:500] if stderr else "Download exited with non-zero status"
-            last_error = err_msg
-            logger.warning(f"Download attempt failed with proxy '{proxy}': {err_msg}")
-
-        raise RuntimeError(f"yt-dlp failed: {last_error}")
+        raise RuntimeError(f"Audio download failed: {last_error}")
 
     def _get_audio_duration(self, audio_path: str) -> float:
         """Get audio duration in seconds using ffprobe without loading file into memory."""

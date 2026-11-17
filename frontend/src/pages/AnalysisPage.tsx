@@ -21,8 +21,9 @@ import {
   Play,
   Pause
 } from 'lucide-react'
-import { useAnalysis, useUpdateTrack, useCreateTrack, useDeleteTrack } from '../hooks/useAnalysis'
+import { useAnalysis, useUpdateTrack, useCreateTrack, useDeleteTrack, useVerifyJob } from '../hooks/useAnalysis'
 import { ProgressTracker } from '../components/ProgressTracker/ProgressTracker'
+import { VerificationModal } from '../components/VerificationModal/VerificationModal'
 import { SearchFilter } from '../components/SearchFilter/SearchFilter'
 import { ExportPanel } from '../components/ExportPanel/ExportPanel'
 import { EditTrackModal } from '../components/EditTrackModal/EditTrackModal'
@@ -45,6 +46,7 @@ export const AnalysisPage: React.FC = () => {
   const updateTrackMutation = useUpdateTrack()
   const createTrackMutation = useCreateTrack()
   const deleteTrackMutation = useDeleteTrack()
+  const verifyJobMutation = useVerifyJob()
 
   const [activeEditingTrack, setActiveEditingTrack] = useState<Track | null>(null)
   const [isAddMode, setIsAddMode] = useState(false)
@@ -503,6 +505,15 @@ export const AnalysisPage: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* Verification Challenge Modal */}
+      {job && job.status === 'verification_required' && (
+        <VerificationModal
+          job={job}
+          onVerify={() => verifyJobMutation.mutate(job.id)}
+          isVerifying={verifyJobMutation.isPending}
+        />
+      )}
 
       {/* Edit Track Modal */}
       <EditTrackModal

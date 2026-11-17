@@ -66,12 +66,15 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
 
     ffmpeg_dir = os.path.dirname(os.environ.get("FFMPEG_PATH", ""))
     cookie_file = get_cookies_file_path()
-    raw_proxy = os.environ.get("YTDLP_PROXY") or os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or ""
-    proxy_candidates = [p.strip() for p in raw_proxy.split(",") if p.strip()] or [None]
+    raw_proxy = os.environ.get("YTDLP_PROXY") or ""
+    proxy_candidates = [p.strip() for p in raw_proxy.split(",") if p.strip()]
+    if None not in proxy_candidates:
+        proxy_candidates.append(None)
 
     for proxy in proxy_candidates:
         cmd = [
             "yt-dlp",
+            "--extractor-args", "youtube:player_client=android,ios,mweb",
             "--dump-json",
             "--no-download",
             "--no-warnings",
@@ -83,6 +86,8 @@ def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
             cmd += ["--ffmpeg-location", ffmpeg_dir]
         if proxy:
             cmd += ["--proxy", proxy]
+        else:
+            cmd += ["--proxy", ""]
         if cookie_file:
             cmd += ["--cookies", cookie_file]
         cmd.append(url)

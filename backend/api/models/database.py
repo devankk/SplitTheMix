@@ -25,6 +25,8 @@ class AnalysisJob(Base):
     created_at = Column(String, nullable=False)
     completed_at = Column(String, nullable=True)
     error_message = Column(String, nullable=True)
+    verification_url = Column(String, nullable=True)
+    verification_type = Column(String, nullable=True)
     tracks = relationship("Track", back_populates="job", cascade="all, delete-orphan")
 
 

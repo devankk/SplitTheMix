@@ -32,6 +32,14 @@ def _format_track_response(t: Track) -> TrackResponse:
             pl = PlatformLinks(**links)
         except Exception:
             pl = None
+    raw_bpm = getattr(t, "bpm", None)
+    bpm_val = None
+    if raw_bpm is not None:
+        try:
+            bpm_val = int(float(str(raw_bpm).strip()))
+        except (ValueError, TypeError):
+            bpm_val = None
+
     return TrackResponse(
         id=t.id,
         job_id=t.job_id,
@@ -42,7 +50,7 @@ def _format_track_response(t: Track) -> TrackResponse:
         duration=t.duration,
         confidence=t.confidence,
         album_art=getattr(t, "album_art", None),
-        bpm=getattr(t, "bpm", None),
+        bpm=bpm_val,
         musical_key=getattr(t, "musical_key", None),
         release_year=getattr(t, "release_year", None),
         label=getattr(t, "label", None),
@@ -68,6 +76,8 @@ def _format_job_response(job: AnalysisJob) -> AnalysisJobResponse:
         created_at=job.created_at,
         completed_at=job.completed_at,
         error_message=job.error_message,
+        verification_url=getattr(job, "verification_url", None),
+        verification_type=getattr(job, "verification_type", None),
         tracks=tracks
     )
 
@@ -263,5 +273,25 @@ def delete_track(track_id: str, db: Session = Depends(get_db)):
     if job and job.tracks_found > 0:
         job.tracks_found -= 1
     db.delete(track)
+    db.commit()
+    return {"status": "success", "deleted_id": track_id}
+
+
+@router.post("/analysis/{job_id}/verify", response_model=AnalysisJobResponse)
+async def submit_job_verification(job_id: str, db: Session = Depends(get_db)):
+    job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job.status = "queued"
+    job.progress = 5
+    job.stage_message = "Human verification confirmed. Resuming accelerated download..."
+    job.verification_url = None
+    job.verification_type = None
+    db.commit()
+    db.refresh(job)
+
+    await job_queue.enqueue(job.id, job.url)
+    return _format_job_response(job)
     db.commit()
     return {"success": True}
