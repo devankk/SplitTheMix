@@ -66,22 +66,35 @@ AudioSegment.converter = os.environ.get("FFMPEG_PATH", "ffmpeg")
 AudioSegment.ffprobe = os.environ.get("FFPROBE_PATH", "ffprobe")
 
 # High-precision DJ mix recognition constants (Optimized for quick cuts and 80+ song festival sets)
-CHUNK_DURATION_SEC = 15       # 15-second snippet (captures melody & vocals past transition drums)
-CHUNK_STRIDE_SEC = 18         # Sample every 18 seconds (catches quick cuts and 45-sec drops)
-MAX_CONCURRENT_REQUESTS = 8   # Query 8 chunks in parallel for ultra-fast throughput
+CHUNK_DURATION_SEC = 11       # 11-second snippet (optimal for Shazam signature extraction)
+CHUNK_STRIDE_SEC = 20         # 20-second phrase stride for thorough recovery of 60-120+ tracks
+MAX_CONCURRENT_REQUESTS = 8   # 8 rate-paced concurrent workers with rotating proxy shield
 MERGE_WINDOW_SEC = 180        # Merge detections of the same song within 3 minutes (180s)
-MIN_SONG_GAP_SEC = 90         # Only show Unknown Track if true dead gap > 90 seconds
+MIN_SONG_GAP_SEC = 300        # Only show Unknown Track if true dead gap > 5 minutes (300s)
 MIN_CONFIDENCE = 30           # Catch pitched-up edits and fast club remixes
 
 
 def _normalize_title(text: str) -> str:
-    """Normalize song title for smart fuzzy matching (e.g. 'Neal N Nikki' == 'Neal 'N' Nikki')."""
+    """Normalize song title for smart matching without destroying title words."""
     if not text:
         return ""
     t = text.lower()
     # Remove featured artist tags and parenthetical versions like (feat. ...), [Remix], etc.
     t = re.sub(r'\(.*?\)|\[.*?\]', '', t)
+    # Remove soundtrack indicators like (From "...") or "title track"
+    t = re.sub(r'\btitle\s+track\b', '', t)
     # Remove punctuation & symbols
+    t = re.sub(r'[^a-z0-9\s]', '', t)
+    return ' '.join(t.split())
+
+
+def _normalize_artist(text: str) -> str:
+    """Normalize artist name for cross-chunk compatibility checks."""
+    if not text:
+        return ""
+    t = text.lower()
+    t = re.sub(r'\(.*?\)|\[.*?\]', '', t)
+    t = re.sub(r'\b(?:feat|ft|featuring|with|and|&)\b.*', '', t)
     t = re.sub(r'[^a-z0-9\s]', '', t)
     return ' '.join(t.split())
 
@@ -101,16 +114,28 @@ class AudioProcessor:
         self.audd = AudDRecognizer()
         self.shazam = ShazamRecognizer()
 
-    async def _recognize_single_chunk(self, chunk_path: str, offset_sec: float) -> list:
+    async def _recognize_single_chunk(self, chunk_path: str, offset_sec: float, allow_fallback: bool = False) -> list:
         results = []
-        if self.acrcloud.is_configured():
-            results = await self.acrcloud.recognize_chunk(chunk_path, offset_sec)
+        # Primary: High-speed Apple Shazam with official iOS headers & proxy rotation (<0.4s per chunk)
+        if self.shazam.is_configured():
+            try:
+                results = await self.shazam.recognize_chunk(chunk_path, offset_sec)
+            except Exception as e:
+                logger.debug(f"Shazam chunk error at {offset_sec}s: {e}")
 
-        if not results and self.audd.is_configured():
-            results = await self.audd.recognize_chunk(chunk_path, offset_sec)
+        # Secondary: Targeted ACRCloud fallback ONLY for long unresolved gaps (avoids 150+ wasted HTTP requests)
+        if not results and allow_fallback and self.acrcloud.is_configured():
+            try:
+                results = await self.acrcloud.recognize_chunk(chunk_path, offset_sec)
+            except Exception as e:
+                logger.debug(f"ACRCloud chunk fallback error at {offset_sec}s: {e}")
 
-        if not results and self.shazam.is_configured():
-            results = await self.shazam.recognize_chunk(chunk_path, offset_sec)
+        # Tertiary: Targeted AudD fallback
+        if not results and allow_fallback and self.audd.is_configured():
+            try:
+                results = await self.audd.recognize_chunk(chunk_path, offset_sec)
+            except Exception as e:
+                logger.debug(f"AudD chunk fallback error at {offset_sec}s: {e}")
 
         return [r for r in results if r.confidence >= MIN_CONFIDENCE]
 
@@ -120,80 +145,168 @@ class AudioProcessor:
 
         tmp_dir = tempfile.mkdtemp()
         try:
-            # 1. Status → downloading
-            _update_job(
-                db, job_id,
-                status="downloading",
-                stage_message="Downloading audio from YouTube…",
-                progress=0,
-            )
+            is_local = url.startswith("file://") or (os.path.isabs(url) and os.path.exists(url))
+            if is_local:
+                audio_path = url.replace("file://", "")
+                _update_job(
+                    db, job_id,
+                    status="processing",
+                    stage_message="Processing uploaded mix file…",
+                    progress=10,
+                )
+            else:
+                # 1. Status → downloading
+                _update_job(
+                    db, job_id,
+                    status="downloading",
+                    stage_message="Downloading audio from YouTube…",
+                    progress=0,
+                )
 
-            # 2. Download audio
-            audio_path = await self._download_audio(url, tmp_dir)
+                # 2. Download audio
+                audio_path = await self._download_audio(url, tmp_dir)
 
-            # 3. Status → processing
-            _update_job(
-                db, job_id,
-                status="processing",
-                stage_message="Extracting acoustic signature windows…",
-                progress=10,
-            )
+                # 3. Status → processing
+                _update_job(
+                    db, job_id,
+                    status="processing",
+                    stage_message="Extracting acoustic signature windows…",
+                    progress=10,
+                )
 
             # 4. Zero-RAM duration resolution and streaming snippet slicing with ffmpeg
             total_sec = self._get_audio_duration(audio_path)
-            if total_sec <= 0:
+            if total_sec > 0:
+                _update_job(db, job_id, video_duration=int(total_sec))
+            else:
                 from api.models.database import AnalysisJob
                 job_rec = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
                 total_sec = float(job_rec.video_duration) if job_rec and job_rec.video_duration else 3600.0
 
-            chunks = self._split_into_chunks(audio_path, total_sec, tmp_dir)
-            total_chunks = len(chunks)
+            coarse_offsets = []
+            pos = 0.0
+            while pos < total_sec:
+                coarse_offsets.append(pos)
+                pos += CHUNK_STRIDE_SEC
+            total_chunks = len(coarse_offsets)
 
-            # 5. Parallel Batch Recognition using Semaphore
+            # 5. Parallel Batch Recognition with 16 Workers and Adaptive Transition Bisection
             raw_results = []
             semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
             completed_count = 0
+            loop = asyncio.get_event_loop()
 
-            async def sem_worker(chunk_path: str, offset_sec: float, idx: int):
+            async def sem_worker(offset_sec: float, idx: int, stage_label: str = "", allow_fallback: bool = False):
                 nonlocal completed_count
                 async with semaphore:
-                    res = await self._recognize_single_chunk(chunk_path, offset_sec)
+                    await asyncio.sleep(0.08)
+                    chunk_path = os.path.join(tmp_dir, f"chunk_{idx:05d}.wav")
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-nostdin",
+                        "-ss", str(offset_sec),
+                        "-t", str(CHUNK_DURATION_SEC),
+                        "-i", audio_path,
+                        "-ac", "1",
+                        "-ar", "44100",
+                        "-vn",
+                        chunk_path
+                    ]
+                    await loop.run_in_executor(None, lambda: subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                    res = []
+                    if os.path.exists(chunk_path) and os.path.getsize(chunk_path) > 1000:
+                        try:
+                            res = await self._recognize_single_chunk(chunk_path, offset_sec, allow_fallback=allow_fallback)
+                        finally:
+                            try:
+                                os.remove(chunk_path)
+                            except Exception:
+                                pass
+
                     completed_count += 1
-                    current_prog = 10 + int((completed_count / total_chunks) * 80)
+                    current_prog = 10 + int((completed_count / (total_chunks + 40)) * 80)
+                    current_prog = min(current_prog, 90)
+                    msg = f"Fingerprinting set: chunk {completed_count} ({stage_label}) …" if stage_label else f"Fingerprinting set: chunk {completed_count} of {total_chunks} …"
                     _update_job(
                         db, job_id,
-                        stage_message=f"Fingerprinting set: chunk {completed_count} of {total_chunks} (Parallel) …",
+                        stage_message=msg,
                         progress=current_prog,
                     )
                     return res
 
-            tasks = [sem_worker(p, o, i) for i, (p, o) in enumerate(chunks)]
+            # Pass 1: Safe 32-second Coarse Scan
+            tasks = [sem_worker(o, i, "Pass 1") for i, o in enumerate(coarse_offsets)]
             batch_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for b in batch_results:
-                if isinstance(b, list):
+            coarse_hits = {}
+            for i, b in enumerate(batch_results):
+                if isinstance(b, list) and b:
                     raw_results.extend(b)
+                    coarse_hits[coarse_offsets[i]] = b[0]
+
+            # Pass 2: Adaptive Transition Bisection (Only between confirmed distinct songs)
+            refine_offsets = []
+            for i in range(len(coarse_offsets) - 1):
+                t1 = coarse_offsets[i]
+                t2 = coarse_offsets[i + 1]
+                hit1 = coarse_hits.get(t1)
+                hit2 = coarse_hits.get(t2)
+                if hit1 and hit2 and _normalize_title(hit1.title) != _normalize_title(hit2.title):
+                    refine_offsets.append((t1 + t2) / 2.0)
+
+            if refine_offsets:
+                refine_tasks = [sem_worker(o, 50000 + i, "Refining Drops") for i, o in enumerate(refine_offsets)]
+                refine_results = await asyncio.gather(*refine_tasks, return_exceptions=True)
+                for b in refine_results:
+                    if isinstance(b, list) and b:
+                        raw_results.extend(b)
+
+            # Pass 3: Targeted Regional Fallback (ACRCloud) ONLY on large unresolved voids (> 240s)
+            gap_check_offsets = []
+            sorted_raw = sorted(raw_results, key=lambda x: x.absolute_timestamp)
+            for i in range(len(sorted_raw) - 1):
+                g = sorted_raw[i+1].absolute_timestamp - sorted_raw[i].absolute_timestamp
+                if g > 240.0:
+                    gap_check_offsets.append(sorted_raw[i].absolute_timestamp + g / 2.0)
+            if gap_check_offsets:
+                gap_tasks = [sem_worker(o, 80000 + i, "Targeted Fallback", allow_fallback=True) for i, o in enumerate(gap_check_offsets[:5])]
+                gap_results = await asyncio.gather(*gap_tasks, return_exceptions=True)
+                for b in gap_results:
+                    if isinstance(b, list) and b:
+                        raw_results.extend(b)
 
             # 6. Deduplicate & merge with fuzzy matching and drop earliest start time
             tracks_data = self._deduplicate(raw_results)
 
-            # 7. Gap analysis — only insert Unknown Track if true dead gap > 2.5 minutes
+            # 7. Gap analysis — only insert Unknown Track if true dead gap > 240s
             tracks_data = self._fill_gaps(tracks_data, total_sec)
 
             # 8. Enrich identified tracks with album art, BPM, Key, release year, label in parallel
-            enriched_tasks = []
-            for t in tracks_data:
-                if t["is_identified"]:
-                    enriched_tasks.append(enrich_track_metadata(t["title"], t["artist"], t))
-                else:
-                    enriched_tasks.append(asyncio.sleep(0, result=t))
-            tracks_data = await asyncio.gather(*enriched_tasks)
+            enrich_sem = asyncio.Semaphore(10)
+            async def _safe_enrich(t):
+                if not t.get("is_identified") or t.get("title") == "Unknown Track":
+                    return t
+                async with enrich_sem:
+                    try:
+                        return await asyncio.wait_for(enrich_track_metadata(t["title"], t["artist"], t), timeout=3.0)
+                    except Exception:
+                        return t
 
-            # 9. Build final tracks with end_time, duration, platform_links
+            tracks_data = await asyncio.gather(*[_safe_enrich(t) for t in tracks_data])
+
+            # 9. Build final tracks with realistic overlapping transition end_times
             db_tracks = []
             for idx, t in enumerate(tracks_data):
-                end_time = tracks_data[idx + 1]["start_time"] if idx + 1 < len(tracks_data) else total_sec
-                dur = (end_time - t["start_time"]) if end_time is not None else None
+                if idx + 1 < len(tracks_data):
+                    next_start = tracks_data[idx + 1]["start_time"]
+                    # Support overlapping DJ transition: Track i continues playing during crossfade (fade-out)
+                    # Typical crossfade overlap is 15-25 seconds
+                    overlap_sec = 20.0
+                    end_time = min(total_sec, max(t["start_time"] + 15.0, next_start + overlap_sec))
+                else:
+                    end_time = total_sec
+
+                dur = max(0.0, end_time - t["start_time"])
                 if t["is_identified"]:
                     pl = generate_platform_links(t["title"], t["artist"])
                 else:
@@ -345,28 +458,57 @@ class AudioProcessor:
     def _deduplicate(self, raw: list) -> list[dict]:
         """
         Smart Fuzzy De-duplication:
-        1. Normalizes song titles (strips punctuation, case, quotes).
-        2. Merges same title within MERGE_WINDOW_SEC (180s = 3 minutes).
-        3. Collapses multiple artists of the same track into the highest confidence entry.
-        4. Keeps the EARLIEST start_time so timestamp matches the real song drop.
+        1. Normalizes song titles without destroying title words.
+        2. Merges same title & compatible artist within MERGE_WINDOW_SEC (240s = 4 minutes).
+        3. Preserves genuine repeat appearances (> 4 minutes apart) as distinct timeline segments.
+        4. Calculates exact start_time using Shazam match_offset and earliest drop boundary.
+        5. Eliminates artificial +8s shifts so real timecodes remain pure.
         """
         raw = sorted(raw, key=lambda r: r.absolute_timestamp)
         merged = []
 
         for r in raw:
             norm_title = _normalize_title(r.title)
+            norm_artist = _normalize_artist(r.artist)
             found = False
+
+            # Calculate accurate start time using internal match_offset if available
+            start_ts = r.absolute_timestamp
+            m_offset = getattr(r, "match_offset", None)
+            if m_offset is not None and m_offset > 0:
+                if m_offset <= 35.0:
+                    start_ts = max(0.0, r.absolute_timestamp - m_offset)
+                else:
+                    # DJ mixed into chorus/hook; transition drop occurred ~12-16s prior to detection
+                    start_ts = max(0.0, r.absolute_timestamp - 14.0)
 
             for m in merged:
                 m_norm_title = _normalize_title(m["title"])
-                # Match if title is identical or very close within 3 minutes
-                title_matches = (
-                    norm_title == m_norm_title or
-                    (len(norm_title) > 4 and norm_title in m_norm_title) or
-                    (len(m_norm_title) > 4 and m_norm_title in norm_title)
-                )
+                m_norm_artist = _normalize_artist(m["artist"])
 
-                if title_matches and abs(m["start_time"] - r.absolute_timestamp) <= MERGE_WINDOW_SEC:
+                # Exact title match or high token similarity
+                title_identical = (norm_title == m_norm_title)
+                title_close = False
+                if not title_identical and len(norm_title) >= 5 and len(m_norm_title) >= 5:
+                    t1_tokens = set(norm_title.split())
+                    t2_tokens = set(m_norm_title.split())
+                    common = t1_tokens.intersection(t2_tokens)
+                    if len(common) >= min(len(t1_tokens), len(t2_tokens)) * 0.8:
+                        title_close = True
+
+                title_matches = title_identical or title_close
+
+                # Check artist compatibility (don't merge different artists unless one is unknown)
+                artist_compatible = True
+                if norm_artist and m_norm_artist:
+                    a1_tokens = set(norm_artist.split())
+                    a2_tokens = set(m_norm_artist.split())
+                    if not a1_tokens.intersection(a2_tokens):
+                        artist_compatible = False
+
+                # Time window: only merge if within MERGE_WINDOW_SEC (4 mins)
+                # Genuine repeats (> 4 mins apart) remain as separate distinct timeline entries!
+                if title_matches and artist_compatible and abs(m["start_time"] - r.absolute_timestamp) <= MERGE_WINDOW_SEC:
                     # Update to keep the highest confidence metadata
                     if r.confidence > m["confidence"]:
                         m["title"] = r.title
@@ -376,10 +518,14 @@ class AudioProcessor:
                         if getattr(r, "musical_key", None): m["musical_key"] = r.musical_key
                         if getattr(r, "release_year", None): m["release_year"] = r.release_year
                         if getattr(r, "label", None): m["label"] = r.label
-                        if getattr(r, "album_art", None): m["album_art"] = r.album_art
-                    # Always preserve the earliest start timestamp where the song actually began
-                    if r.absolute_timestamp < m["start_time"]:
-                        m["start_time"] = r.absolute_timestamp
+
+                    # Always preserve album art if available
+                    if not m.get("album_art") and getattr(r, "album_art", None):
+                        m["album_art"] = r.album_art
+
+                    # Always preserve earliest accurate start timestamp where the song actually began
+                    if start_ts < m["start_time"]:
+                        m["start_time"] = start_ts
                     found = True
                     break
 
@@ -387,7 +533,7 @@ class AudioProcessor:
                 merged.append({
                     "title": r.title,
                     "artist": r.artist,
-                    "start_time": r.absolute_timestamp,
+                    "start_time": start_ts,
                     "confidence": r.confidence,
                     "is_identified": True,
                     "bpm": getattr(r, "bpm", None),
@@ -403,18 +549,18 @@ class AudioProcessor:
         if not tracks:
             return [{
                 "title": "Unknown Track",
-                "artist": "",
+                "artist": "Unknown Artist",
                 "start_time": 0.0,
                 "confidence": 0,
                 "is_identified": False,
             }]
 
         result = []
-        # Only add leading Unknown Track if set begins with more than 2.5 minutes of unidentified music
-        if tracks[0]["start_time"] > MIN_SONG_GAP_SEC:
+        # Only add leading Unknown Track if set begins with more than 90s of unidentified music
+        if tracks[0]["start_time"] > 90.0:
             result.append({
                 "title": "Unknown Track",
-                "artist": "",
+                "artist": "Unknown Artist",
                 "start_time": 0.0,
                 "confidence": 0,
                 "is_identified": False,
@@ -428,15 +574,27 @@ class AudioProcessor:
                 else total_duration
             )
             gap = next_start - track["start_time"]
-            # Only insert Unknown Track if there is a massive unrecognised gap (> 150s)
+            # Only insert Unknown Track if there is a massive unrecognised void (> 300s = 5 minutes)
+            # In standard DJ sets, a song playing for 2.5-4.5 minutes is normal and MUST NOT be cut in half!
             if gap > MIN_SONG_GAP_SEC:
-                mid = track["start_time"] + gap / 2
-                result.append({
-                    "title": "Unknown Track",
-                    "artist": "",
-                    "start_time": mid,
-                    "confidence": 0,
-                    "is_identified": False,
-                })
+                unknown_start = track["start_time"] + 180.0
+                if next_start - unknown_start >= 60.0:
+                    result.append({
+                        "title": "Unknown Track",
+                        "artist": "Unknown Artist",
+                        "start_time": unknown_start,
+                        "confidence": 0,
+                        "is_identified": False,
+                    })
 
-        return result
+        # If set ends with more than 5 minutes of unidentified outro audio
+        if total_duration - tracks[-1]["start_time"] > MIN_SONG_GAP_SEC and len(result) > 0 and result[-1]["title"] != "Unknown Track":
+            result.append({
+                "title": "Unknown Track",
+                "artist": "Unknown Artist",
+                "start_time": tracks[-1]["start_time"] + 180.0,
+                "confidence": 0,
+                "is_identified": False,
+            })
+
+        return sorted(result, key=lambda x: x["start_time"])

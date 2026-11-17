@@ -1,8 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 import uuid
 import json
+import os
+import re
+import tempfile
+import aiofiles
 
 from api.models.database import get_db, AnalysisJob, Track
 from api.models.schemas import (
@@ -112,6 +117,72 @@ async def analyze_mix(payload: AnalysisJobCreate, db: Session = Depends(get_db))
 
     await job_queue.enqueue(job_id, url)
     return _format_job_response(job)
+
+ALLOWED_EXTENSIONS = {".mp3", ".mp4", ".wav", ".m4a", ".aac", ".webm", ".flac", ".ogg"}
+
+@router.post("/analyze/upload", response_model=AnalysisJobResponse)
+async def analyze_uploaded_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    filename = file.filename or "uploaded_mix.mp3"
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format '{ext}'. Supported formats: {', '.join(sorted(ALLOWED_EXTENSIONS))}."
+        )
+
+    job_id = str(uuid.uuid4())
+    upload_dir = os.path.join(tempfile.gettempdir(), "splitthemix_uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    clean_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+    file_path = os.path.join(upload_dir, f"{job_id}_{clean_name}")
+
+    async with aiofiles.open(file_path, "wb") as out_file:
+        while content := await file.read(1024 * 1024):
+            await out_file.write(content)
+
+    duration = None
+    try:
+        from api.services.audio_processor import AudioProcessor
+        duration = int(AudioProcessor()._get_audio_duration(file_path))
+    except Exception:
+        pass
+
+    job = AnalysisJob(
+        id=job_id,
+        url=f"file://{file_path}",
+        video_id=f"local_{job_id[:8]}",
+        video_title=filename,
+        channel_name="Local Audio File",
+        thumbnail_url=None,
+        video_duration=duration,
+        status="queued",
+        progress=0,
+        stage_message="File uploaded. Queued for analysis...",
+        tracks_found=0,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        error_message=None
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    await job_queue.enqueue(job_id, f"file://{file_path}")
+    return _format_job_response(job)
+
+@router.get("/media/{job_id}")
+def stream_media_file(job_id: str, db: Session = Depends(get_db)):
+    job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+    if not job or not job.url:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if not job.url.startswith("file://"):
+        raise HTTPException(status_code=400, detail="Not a local media file")
+    file_path = job.url.replace("file://", "")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Media file not found on disk")
+
+    ext = os.path.splitext(file_path)[1].lower()
+    media_type = "audio/mpeg" if ext == ".mp3" else ("video/mp4" if ext == ".mp4" else "audio/wav")
+    return FileResponse(file_path, media_type=media_type)
 
 @router.get("/analysis/{job_id}", response_model=AnalysisJobResponse)
 def get_analysis_status(job_id: str, db: Session = Depends(get_db)):

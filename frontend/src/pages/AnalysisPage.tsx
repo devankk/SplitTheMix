@@ -16,7 +16,10 @@ import {
   HelpCircle,
   Maximize2,
   Minimize2,
-  Volume2
+  Volume2,
+  FileAudio,
+  Play,
+  Pause
 } from 'lucide-react'
 import { useAnalysis, useUpdateTrack, useCreateTrack, useDeleteTrack } from '../hooks/useAnalysis'
 import { ProgressTracker } from '../components/ProgressTracker/ProgressTracker'
@@ -48,12 +51,15 @@ export const AnalysisPage: React.FC = () => {
   const [filteredTracks, setFilteredTracks] = useState<Track[] | null>(null)
   const [shared, setShared] = useState(false)
 
-  // In-page synchronized YouTube player state
+  // In-page synchronized YouTube & Local Audio player state
   const [currentSeekTime, setCurrentSeekTime] = useState<number>(0)
   const [showEmbeddedPlayer, setShowEmbeddedPlayer] = useState<boolean>(true)
   const [isCompactPlayer, setIsCompactPlayer] = useState<boolean>(false)
   const playerRef = useRef<any>(null)
   const [isPlayerReady, setIsPlayerReady] = useState(false)
+  const localAudioRef = useRef<HTMLAudioElement>(null)
+  const [isLocalAudioPlaying, setIsLocalAudioPlaying] = useState<boolean>(false)
+  const isLocalFile = Boolean(job?.video_id?.startsWith('local_') || job?.url?.startsWith('file://'))
 
   // Load the YouTube IFrame API script once
   useEffect(() => {
@@ -65,7 +71,8 @@ export const AnalysisPage: React.FC = () => {
     }
 
     const initPlayer = () => {
-      if (job?.video_id && window.YT && window.YT.Player) {
+      const isYouTube = job?.video_id && !job.video_id.startsWith('local_') && !job.video_id.startsWith('sc_') && !job.video_id.startsWith('mc_')
+      if (isYouTube && window.YT && window.YT.Player) {
         playerRef.current = new window.YT.Player('youtube-embedded-player', {
           videoId: job.video_id,
           playerVars: {
@@ -116,11 +123,17 @@ export const AnalysisPage: React.FC = () => {
     setTimeout(() => setShared(false), 2000)
   }
 
-  // Smooth in-place seeking — locks scroll position so page never jumps!
+  // Smooth in-place seeking for both Local Audio and YouTube — locks scroll position so page never jumps!
   const handleSeek = (seconds: number) => {
     setCurrentSeekTime(seconds)
-    setShowEmbeddedPlayer(true)
 
+    if (isLocalFile && localAudioRef.current) {
+      localAudioRef.current.currentTime = seconds
+      localAudioRef.current.play().then(() => setIsLocalAudioPlaying(true)).catch(() => {})
+      return
+    }
+
+    setShowEmbeddedPlayer(true)
     if (playerRef.current && playerRef.current.seekTo) {
       playerRef.current.seekTo(seconds, true)
       playerRef.current.playVideo()
@@ -132,6 +145,16 @@ export const AnalysisPage: React.FC = () => {
           '*'
         )
       }
+    }
+  }
+
+  const toggleLocalAudioPlay = () => {
+    if (!localAudioRef.current) return
+    if (isLocalAudioPlaying) {
+      localAudioRef.current.pause()
+      setIsLocalAudioPlaying(false)
+    } else {
+      localAudioRef.current.play().then(() => setIsLocalAudioPlaying(true)).catch(() => {})
     }
   }
 
@@ -259,8 +282,8 @@ export const AnalysisPage: React.FC = () => {
         {/* ALWAYS VISIBLE WHILE SCROLLING TRACKS! */}
         {/* ========================================================= */}
         <div className="w-full lg:w-[480px] xl:w-[520px] lg:sticky lg:top-20 self-start space-y-4 shrink-0 z-30 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto pr-0.5">
-          {/* Synchronized Embedded Video Monitor */}
-          {job.video_id && (
+          {/* Synchronized Embedded Video Monitor / Local File Deck */}
+          {job.video_id && !job.video_id.startsWith('local_') ? (
             <div className="rounded-xl bg-[#141414] border border-[#292929] overflow-hidden shadow-console-md">
               {/* Monitor Control Bar */}
               <div className="p-3 bg-[#090909] border-b border-[#292929] flex items-center justify-between text-xs font-mono">
@@ -293,6 +316,74 @@ export const AnalysisPage: React.FC = () => {
                   <div id="youtube-embedded-player" className="w-full h-full" />
                 </div>
               )}
+            </div>
+          ) : (
+            <div className="rounded-xl bg-[#141414] border border-[#292929] overflow-hidden shadow-console-md">
+              <audio
+                ref={localAudioRef}
+                src={`${(import.meta as any).env?.VITE_API_BASE_URL || '/api'}/media/${job.id}`}
+                onTimeUpdate={(e) => {
+                  setCurrentSeekTime(Math.floor(e.currentTarget.currentTime))
+                }}
+                onPlay={() => setIsLocalAudioPlaying(true)}
+                onPause={() => setIsLocalAudioPlaying(false)}
+                onEnded={() => setIsLocalAudioPlaying(false)}
+              />
+
+              {/* Deck Header */}
+              <div className="p-3 bg-[#090909] border-b border-[#292929] flex items-center justify-between text-xs font-mono">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${isLocalAudioPlaying ? 'bg-[#22c55e] shadow-[0_0_8px_#22c55e] animate-pulse' : 'bg-[#E32636]'}`} />
+                  <span className="font-display font-bold text-white tracking-wider uppercase">LOCAL MIX MONITOR</span>
+                </div>
+                <span className="text-[10px] text-[#9CA3AF] font-mono uppercase bg-[#202020] px-2 py-0.5 rounded border border-[#292929]">
+                  {isLocalAudioPlaying ? 'Playing' : 'Ready'}
+                </span>
+              </div>
+
+              {/* Deck Player Body */}
+              <div className="p-4 space-y-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={toggleLocalAudioPlay}
+                    className="w-12 h-12 rounded-lg bg-[#E32636] hover:bg-[#f03a4b] text-white flex items-center justify-center shrink-0 transition-transform active:scale-95 shadow-[0_0_15px_rgba(227,38,54,0.3)] cursor-pointer"
+                    title={isLocalAudioPlaying ? "Pause" : "Play"}
+                  >
+                    {isLocalAudioPlaying ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current ml-0.5" />}
+                  </button>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-display font-bold text-white truncate leading-tight">
+                      {job.video_title || 'Local Audio Set'}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1 text-xs font-mono text-[#D1D5DB]">
+                      <span className="text-[#E32636] font-semibold">{formatTimestamp(currentSeekTime)}</span>
+                      <span className="text-[#6B7280]">/</span>
+                      <span className="text-[#9CA3AF]">{formatDuration(job.video_duration || 0)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scrubber Seek Bar */}
+                <div className="space-y-1">
+                  <input
+                    type="range"
+                    min={0}
+                    max={job.video_duration || 100}
+                    value={currentSeekTime}
+                    onChange={(e) => {
+                      const val = Number(e.target.value)
+                      handleSeek(val)
+                    }}
+                    className="w-full h-1.5 bg-[#202020] rounded-lg appearance-none cursor-pointer accent-[#E32636]"
+                  />
+                  <div className="flex justify-between text-[10px] font-mono text-[#6B7280]">
+                    <span>0:00</span>
+                    <span>Click any track below to jump</span>
+                    <span>{formatDuration(job.video_duration || 0)}</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

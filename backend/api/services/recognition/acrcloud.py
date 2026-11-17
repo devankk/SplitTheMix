@@ -9,7 +9,8 @@ import httpx
 
 from api.services.recognition.base import BaseRecognizer, RecognitionResult
 
-MAX_RETRIES = 3
+MAX_RETRIES = 1
+TIMEOUT_SEC = 3.0
 
 
 class ACRCloudRecognizer(BaseRecognizer):
@@ -63,54 +64,49 @@ class ACRCloudRecognizer(BaseRecognizer):
             "signature_version": "1",
         }
 
-        for attempt in range(MAX_RETRIES):
-            try:
-                async with httpx.AsyncClient(timeout=30) as client:
-                    response = await client.post(url, data=data, files=files)
-                    response.raise_for_status()
-                    result = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=TIMEOUT_SEC) as client:
+                response = await client.post(url, data=data, files=files)
+                if response.status_code != 200:
+                    return []
+                result = response.json()
 
-                    status = result.get("status", {})
-                    if status.get("code") != 0:
-                        return []
+                status = result.get("status", {})
+                if status.get("code") != 0:
+                    return []
 
-                    metadata = result.get("metadata", {})
-                    music_list = metadata.get("music", [])
-                    results = []
-                    for item in music_list:
-                        title = item.get("title", "Unknown")
-                        artists = item.get("artists", [])
-                        artist = artists[0].get("name", "") if artists else ""
-                        score = item.get("score", 0)
-                        confidence = min(100, max(0, int(float(score))))
-                        
-                        # Extract rich metadata from ACRCloud
-                        release_date = item.get("release_date", "")
-                        release_year = release_date[:4] if release_date else None
-                        label = item.get("label") or item.get("album", {}).get("name")
-                        bpm_raw = item.get("bpm") or item.get("tempo")
-                        bpm = int(float(bpm_raw)) if bpm_raw else None
-                        key = item.get("key")
+                metadata = result.get("metadata", {})
+                music_list = metadata.get("music", [])
+                results = []
+                for item in music_list:
+                    title = item.get("title", "Unknown")
+                    artists = item.get("artists", [])
+                    artist = artists[0].get("name", "") if artists else ""
+                    score = item.get("score", 0)
+                    confidence = min(100, max(0, int(float(score))))
+                    
+                    # Extract rich metadata from ACRCloud
+                    release_date = item.get("release_date", "")
+                    release_year = release_date[:4] if release_date else None
+                    label = item.get("label") or item.get("album", {}).get("name")
+                    bpm_raw = item.get("bpm") or item.get("tempo")
+                    bpm = int(float(bpm_raw)) if bpm_raw else None
+                    key = item.get("key")
 
-                        results.append(
-                            RecognitionResult(
-                                title=title,
-                                artist=artist,
-                                confidence=confidence,
-                                absolute_timestamp=offset,
-                                bpm=bpm,
-                                musical_key=key,
-                                release_year=release_year,
-                                label=label,
-                            )
+                    results.append(
+                        RecognitionResult(
+                            title=title,
+                            artist=artist,
+                            confidence=confidence,
+                            absolute_timestamp=offset,
+                            bpm=bpm,
+                            musical_key=key,
+                            release_year=release_year,
+                            label=label,
                         )
-                    return results
-
-            except httpx.TimeoutException:
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(2)
-                continue
-            except Exception:
-                return []
+                    )
+                return results
+        except Exception:
+            return []
 
         return []

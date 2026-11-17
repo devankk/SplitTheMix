@@ -11,6 +11,21 @@ export const analyzeUrl = async (url: string): Promise<AnalysisJob> => {
   return res.data
 }
 
+export const analyzeFile = async (file: File, onProgress?: (pct: number) => void): Promise<AnalysisJob> => {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await api.post<AnalysisJob>('/analyze/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000, // 5 minutes for big audio/video uploads
+    onUploadProgress: (progressEvent) => {
+      if (onProgress && progressEvent.total) {
+        onProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total))
+      }
+    }
+  })
+  return res.data
+}
+
 export const getAnalysis = async (jobId: string): Promise<AnalysisJob> => {
   const res = await api.get<AnalysisJob>(`/analysis/${jobId}`)
   return res.data

@@ -23,7 +23,8 @@ djmix.db
 backend/.env
 
 # Scratch & test scripts
-test_*.py
+/test_*.py
+!backend/tests/**
 shazam_bench.py
 meta_test.json
 comments.json

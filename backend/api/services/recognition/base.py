@@ -13,6 +13,7 @@ class RecognitionResult:
     musical_key: str | None = None
     release_year: str | None = None
     label: str | None = None
+    match_offset: float | None = None
 
 
 class BaseRecognizer(ABC):

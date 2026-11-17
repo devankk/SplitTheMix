@@ -48,11 +48,12 @@ def _fetch_oembed_metadata(video_id: str) -> dict:
 
 
 def fetch_video_metadata(identifier: str, full_url: str | None = None) -> dict:
-    """Fetch video metadata with fast oEmbed fallback and yt-dlp duration extraction."""
-    meta = {}
+    """Fetch video metadata with fast 50ms oEmbed and non-blocking fallback."""
     vid = extract_video_id(full_url or identifier)
     if vid and not vid.startswith("sc_") and not vid.startswith("mc_"):
         meta = _fetch_oembed_metadata(vid)
+        if meta.get("video_title"):
+            return meta
 
     if full_url and full_url.startswith("http"):
         url = full_url

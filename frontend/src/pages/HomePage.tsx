@@ -1,13 +1,17 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { Disc3, Search, AlertCircle, ArrowRight, Layers, Sliders, CheckCircle, Clock, Music, ArrowUpRight, Shield, Radio, Volume2 } from 'lucide-react'
-import { analyzeUrl } from '../api/client'
+import { Disc3, Search, AlertCircle, ArrowRight, Layers, Sliders, CheckCircle, Clock, Music, ArrowUpRight, Shield, Radio, Volume2, UploadCloud, FileAudio } from 'lucide-react'
+import { analyzeUrl, analyzeFile } from '../api/client'
 import { validateMediaUrl } from '../utils/format'
 
 export const HomePage: React.FC = () => {
   const [url, setUrl] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const [uploadingFilename, setUploadingFilename] = useState<string>('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -47,6 +51,49 @@ export const HomePage: React.FC = () => {
       setError(err?.response?.data?.detail || err.message || 'Failed to submit URL for analysis.')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleProcessFile = async (file: File) => {
+    setError(null)
+    setUploadingFilename(file.name)
+    setUploadProgress(0)
+    try {
+      setIsLoading(true)
+      const job = await analyzeFile(file, (pct) => setUploadProgress(pct))
+      navigate(`/analysis/${job.id}`)
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err.message || 'Failed to upload and analyze mix file.')
+      setUploadProgress(null)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleProcessFile(e.dataTransfer.files[0])
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      handleProcessFile(e.target.files[0])
     }
   }
 
@@ -107,6 +154,74 @@ export const HomePage: React.FC = () => {
               </button>
             </div>
           </form>
+
+          {/* Studio Console Divider */}
+          <div className="relative flex items-center justify-center my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-[#292929]" />
+            </div>
+            <span className="relative px-3 bg-[#090909] text-[11px] font-mono text-[#666] uppercase tracking-wider">
+              Or drop your mix file
+            </span>
+          </div>
+
+          {/* Drag & Drop Local Audio / Video Zone */}
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`relative p-6 rounded-lg border-2 border-dashed transition-all duration-200 cursor-pointer flex flex-col items-center justify-center text-center ${
+              isDragging
+                ? 'border-[#E32636] bg-[#E32636]/10 shadow-[0_0_25px_rgba(227,38,54,0.25)]'
+                : 'border-[#292929] hover:border-[#8D1422] bg-[#141414] hover:bg-[#181818]'
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".mp3,.mp4,.m4a,.wav,.aac,.webm,.flac,.ogg"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+
+            {uploadProgress !== null ? (
+              <div className="w-full max-w-md space-y-3">
+                <div className="flex items-center justify-between text-xs font-mono text-[#D1D5DB]">
+                  <span className="truncate max-w-[250px] font-semibold text-white">{uploadingFilename}</span>
+                  <span className="text-[#E32636] font-bold">{uploadProgress}%</span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-[#202020] overflow-hidden">
+                  <div
+                    className="h-full bg-[#E32636] transition-all duration-150"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <p className="text-[11px] font-mono text-[#9CA3AF]">Uploading & preparing DJ mix analysis...</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center space-y-2">
+                <div className="w-10 h-10 rounded-full bg-[#202020] border border-[#292929] flex items-center justify-center text-[#E32636]">
+                  <UploadCloud className="w-5 h-5" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold font-display text-white">
+                    Drop DJ mix file here, or <span className="text-[#E32636] underline underline-offset-2">browse files</span>
+                  </p>
+                  <p className="text-xs text-[#9CA3AF] font-mono">
+                    Direct MP3 or MP4 sets with zero download delay
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 pt-1">
+                  {['MP3', 'MP4', 'WAV', 'M4A', 'WEBM'].map(badge => (
+                    <span key={badge} className="px-2 py-0.5 rounded bg-[#202020] border border-[#292929] text-[10px] font-mono text-[#9CA3AF]">
+                      {badge}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           {error && (
             <div className="flex items-center gap-2 p-3 mt-3 rounded bg-[#141414] border border-[#E32636]/40 text-[#E32636] text-xs font-mono text-left animate-in fade-in">

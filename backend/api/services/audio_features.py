@@ -125,7 +125,7 @@ async def fetch_songbpm_features(title: str, artist: str) -> Tuple[Optional[int]
     }
 
     try:
-        async with httpx.AsyncClient(timeout=4.0, headers=headers) as client:
+        async with httpx.AsyncClient(timeout=2.5, headers=headers) as client:
             r = await client.get(url, follow_redirects=True)
             if r.status_code == 200:
                 bpm = None
