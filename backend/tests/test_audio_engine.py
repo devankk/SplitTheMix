@@ -167,6 +167,34 @@ class TestAudioEngine(unittest.TestCase):
         self.assertEqual(db_tracks[2]["start_time"], 260.0)
         self.assertEqual(db_tracks[2]["end_time"], 600.0)
 
+    def test_handover_prevents_pre_cue_bleed(self):
+        """
+        Verify that when Track 2 is introduced faintly on Deck B (e.g. at 192s with match_offset)
+        while Track 1 is still dominating until 216s:
+        Track 2's resolved audible timestamp MUST be >= 216.0s (never inside Track 1's window).
+        """
+        processor = AudioProcessor()
+        raw = [
+            # Song 1 dominant from 0 to 216s
+            RecognitionResult(title="Arrey Diwano", artist="Sanjeev Wadhwani", confidence=95, absolute_timestamp=160.0, match_offset=10.0),
+            RecognitionResult(title="Arrey Diwano", artist="Sanjeev Wadhwani", confidence=95, absolute_timestamp=192.0, match_offset=42.0),
+            # Song 2 faint pre-cue on deck B at 192s
+            RecognitionResult(title="Just Lose It", artist="Eminem", confidence=80, absolute_timestamp=192.0, match_offset=5.0),
+            RecognitionResult(title="Arrey Diwano", artist="Sanjeev Wadhwani", confidence=95, absolute_timestamp=204.0, match_offset=54.0),
+            RecognitionResult(title="Arrey Diwano", artist="Sanjeev Wadhwani", confidence=95, absolute_timestamp=216.0, match_offset=66.0),
+            # Song 2 dominant drop takeover at 224s
+            RecognitionResult(title="Just Lose It", artist="Eminem", confidence=95, absolute_timestamp=224.0, match_offset=14.3),
+        ]
+        merged = processor._deduplicate(raw)
+        self.assertEqual(len(merged), 2)
+        song1 = merged[0]
+        song2 = merged[1]
+        self.assertEqual(song1["title"], "Arrey Diwano")
+        self.assertEqual(song2["title"], "Just Lose It")
+        # Song 2 start_time MUST be >= Song 1's last detection (216.0s)
+        self.assertGreaterEqual(song2["start_time"], 216.0)
+        self.assertLessEqual(song2["start_time"], 224.0)
+
 
 if __name__ == "__main__":
     unittest.main()

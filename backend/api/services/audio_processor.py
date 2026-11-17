@@ -20,6 +20,7 @@ from api.services.audio_features import resolve_bpm_and_key, lookup_canonical_fe
 from api.utils.helpers import get_cookies_file_path
 import hashlib
 import httpx
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,55 @@ def _update_job(db, job_id: str, **kwargs):
         for k, v in kwargs.items():
             setattr(job, k, v)
         db.commit()
+
+
+def find_audible_drop(audio_path: str, start_win: float, end_win: float) -> float:
+    """
+    Scans a transition window [start_win, end_win] in 50ms frames to detect the exact
+    audible drop / takeover point where incoming track drops and outgoing track mutes.
+    Uses zero-RAM streaming FFmpeg pipe with < 5MB memory overhead.
+    """
+    if not audio_path or not os.path.exists(audio_path):
+        return round((start_win + end_win) / 2.0, 1)
+
+    start_win = max(0.0, float(start_win))
+    end_win = max(start_win, float(end_win))
+    dur = end_win - start_win
+    if dur <= 0.4:
+        return round(end_win, 1)
+
+    cmd = [
+        "ffmpeg", "-nostdin",
+        "-ss", str(start_win),
+        "-t", str(dur),
+        "-i", audio_path,
+        "-f", "f32le",
+        "-ac", "1",
+        "-ar", "22050",
+        "-"
+    ]
+    try:
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
+        y = np.frombuffer(out, dtype=np.float32)
+        sr = 22050
+        hop = int(sr * 0.05)  # 50ms frames
+        if len(y) < hop * 2:
+            return round((start_win + end_win) / 2.0, 1)
+
+        rms = np.array([np.sqrt(np.mean(y[i:i+hop]**2)) for i in range(0, len(y)-hop, hop)])
+        if len(rms) < 2:
+            return round((start_win + end_win) / 2.0, 1)
+
+        diffs = np.diff(rms)
+        # Score = positive onset diff weighted by incoming energy
+        weights = rms[1:]
+        score = diffs * weights
+        best_idx = int(np.argmax(score)) + 1
+        drop_time = start_win + (best_idx * 0.05)
+        return round(max(start_win, min(end_win, drop_time)), 1)
+    except Exception as e:
+        logger.warning(f"Audible drop detection failed for window [{start_win}, {end_win}]: {e}")
+        return round((start_win + end_win) / 2.0, 1)
 
 
 class AudioProcessor:
@@ -275,8 +325,8 @@ class AudioProcessor:
                     if isinstance(b, list) and b:
                         raw_results.extend(b)
 
-            # 6. Deduplicate & merge with fuzzy matching and drop earliest start time
-            tracks_data = self._deduplicate(raw_results)
+            # 6. Deduplicate & merge with audible handover drop snapping
+            tracks_data = self._deduplicate(raw_results, audio_path=audio_path)
 
             # 7. Gap analysis — only insert Unknown Track if true dead gap > 240s
             tracks_data = self._fill_gaps(tracks_data, total_sec)
@@ -455,14 +505,17 @@ class AudioProcessor:
 
         return chunks
 
-    def _deduplicate(self, raw: list) -> list[dict]:
+    def _deduplicate(self, raw: list, audio_path: str = None) -> list[dict]:
         """
-        Smart Fuzzy De-duplication:
+        Smart Fuzzy De-duplication & Audible Handover Drop Snapping:
         1. Normalizes song titles without destroying title words.
         2. Merges same title & compatible artist within MERGE_WINDOW_SEC (240s = 4 minutes).
         3. Preserves genuine repeat appearances (> 4 minutes apart) as distinct timeline segments.
-        4. Calculates exact start_time using Shazam match_offset and earliest drop boundary.
-        5. Eliminates artificial +8s shifts so real timecodes remain pure.
+        4. Strict Audible Handover Invariant:
+           When Track A transitions to Track B, Track B's start time CANNOT be placed inside
+           Track A's dominant playing window. Faint background pre-cues on deck B are ignored.
+        5. Snaps the timestamp to the exact audible drop in window [T_{A,last}, T_{B,dominant}]
+           using fast sub-second RMS onset analysis if audio_path is provided.
         """
         raw = sorted(raw, key=lambda r: r.absolute_timestamp)
         merged = []
@@ -471,16 +524,6 @@ class AudioProcessor:
             norm_title = _normalize_title(r.title)
             norm_artist = _normalize_artist(r.artist)
             found = False
-
-            # Calculate accurate start time using internal match_offset if available
-            start_ts = r.absolute_timestamp
-            m_offset = getattr(r, "match_offset", None)
-            if m_offset is not None and m_offset > 0:
-                if m_offset <= 35.0:
-                    start_ts = max(0.0, r.absolute_timestamp - m_offset)
-                else:
-                    # DJ mixed into chorus/hook; transition drop occurred ~12-16s prior to detection
-                    start_ts = max(0.0, r.absolute_timestamp - 14.0)
 
             for m in merged:
                 m_norm_title = _normalize_title(m["title"])
@@ -506,9 +549,13 @@ class AudioProcessor:
                     if not a1_tokens.intersection(a2_tokens):
                         artist_compatible = False
 
-                # Time window: only merge if within MERGE_WINDOW_SEC (4 mins)
-                # Genuine repeats (> 4 mins apart) remain as separate distinct timeline entries!
-                if title_matches and artist_compatible and abs(m["start_time"] - r.absolute_timestamp) <= MERGE_WINDOW_SEC:
+                # Time window: only merge if within MERGE_WINDOW_SEC (4 mins) of the cluster's latest detection
+                last_det = m["detections"][-1]
+                if title_matches and artist_compatible and abs(r.absolute_timestamp - last_det) <= MERGE_WINDOW_SEC:
+                    m["detections"].append(r.absolute_timestamp)
+                    if getattr(r, "match_offset", None) is not None:
+                        m["match_offsets"].append(r.match_offset)
+
                     # Update to keep the highest confidence metadata
                     if r.confidence > m["confidence"]:
                         m["title"] = r.title
@@ -523,9 +570,6 @@ class AudioProcessor:
                     if not m.get("album_art") and getattr(r, "album_art", None):
                         m["album_art"] = r.album_art
 
-                    # Always preserve earliest accurate start timestamp where the song actually began
-                    if start_ts < m["start_time"]:
-                        m["start_time"] = start_ts
                     found = True
                     break
 
@@ -533,7 +577,6 @@ class AudioProcessor:
                 merged.append({
                     "title": r.title,
                     "artist": r.artist,
-                    "start_time": start_ts,
                     "confidence": r.confidence,
                     "is_identified": True,
                     "bpm": getattr(r, "bpm", None),
@@ -541,7 +584,59 @@ class AudioProcessor:
                     "release_year": getattr(r, "release_year", None),
                     "label": getattr(r, "label", None),
                     "album_art": getattr(r, "album_art", None),
+                    "detections": [r.absolute_timestamp],
+                    "match_offsets": [r.match_offset] if getattr(r, "match_offset", None) is not None else [],
                 })
+
+        # Calculate exact audible start timestamps respecting handover transitions
+        for i, m in enumerate(merged):
+            t_first = min(m["detections"])
+            t_last = max(m["detections"])
+            m_offsets = m.get("match_offsets", [])
+            first_offset = m_offsets[0] if m_offsets else None
+
+            if i == 0:
+                # First track of the mix
+                if first_offset is not None and 0.0 < first_offset <= 35.0:
+                    m["start_time"] = max(0.0, t_first - first_offset)
+                else:
+                    m["start_time"] = t_first if t_first > 5.0 else 0.0
+            else:
+                prev = merged[i - 1]
+                prev_last = max(prev["detections"])
+                gap_from_prev = t_first - prev_last
+
+                if gap_from_prev > MERGE_WINDOW_SEC:
+                    # Genuine large gap (separated tracks)
+                    if first_offset is not None and 0.0 < first_offset <= 35.0:
+                        m["start_time"] = max(prev_last, t_first - first_offset)
+                    else:
+                        m["start_time"] = t_first
+                else:
+                    # Transition / crossfade handover between prev and current
+                    # Any detection of current track while prev was still detected was pre-cue / low fader
+                    # First post-handover detection of current track:
+                    post_detections = [t for t in m["detections"] if t >= prev_last]
+                    t_dominant = min(post_detections) if post_detections else t_last
+
+                    win_start = prev_last
+                    win_end = max(prev_last, t_dominant)
+
+                    if win_start >= win_end:
+                        m["start_time"] = win_start
+                    elif audio_path and os.path.exists(audio_path):
+                        m["start_time"] = find_audible_drop(audio_path, win_start, win_end)
+                    else:
+                        # Fallback when audio_path not present: midpoint of transition
+                        m["start_time"] = round((win_start + win_end) / 2.0, 1)
+
+            # Ensure start_time is never negative and rounded
+            m["start_time"] = max(0.0, round(float(m["start_time"]), 1))
+
+        # Cleanup internal temporary tracking keys
+        for m in merged:
+            m.pop("detections", None)
+            m.pop("match_offsets", None)
 
         return sorted(merged, key=lambda x: x["start_time"])
 
